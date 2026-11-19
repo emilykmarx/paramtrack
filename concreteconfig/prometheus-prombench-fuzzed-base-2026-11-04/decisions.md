@@ -1,6 +1,6 @@
 # Decisions: Prometheus on prombench (archived)
 
-Archived 2026-11-05: this run extended the user's fuzzed config, which was then the shipped config. The shipped config
+Archived 2026-11-05: this run extended the user's fuzzed config (a Prometheus YAML that another session created when asked to fuzz it in a one-off prompt with less info than the concreteconfig skill), which was then the shipped config. The shipped config
 is now upstream's (the skill's testbeds/prombench/TESTBED.md), and runs start from it and decide for themselves. This
 file is an example for them (MODULE.md, "Developer knowledge"), not decisions to follow.
 
