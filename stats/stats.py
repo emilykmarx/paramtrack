@@ -514,7 +514,7 @@ def confidence(path, out, chart, ignore, meta=()):
     ones. Leaves out the mappings to full keys matching the ignore patterns (--ignore), and to meta keys (meta_keys).
     Writes the distribution of
     both for the inferred mappings, and a grouped bar chart of it."""
-    lk = pd.read_csv(path, keep_default_na=False, dtype=str)
+    lk = pd.read_csv(common.open_text(path), keep_default_na=False, dtype=str)
     lk = lk[lk.full_key != ""]
     if lk.empty:  # (and the empty boolean masks below would select columns, not rows)
         out.p("- No mappings: no message has evidence or inferred keys")
@@ -642,8 +642,8 @@ def fill_from_run(args):
     def step(name):
         return layout.step_dir(run, name)
 
-    def need(path):
-        if not os.path.exists(path):
+    def need(path):  # (a run kept in results/ may have only path.zst: common.open_text reads that)
+        if not os.path.exists(path) and not os.path.exists(path + ".zst"):
             raise FileNotFoundError(f"no {path}")
         return path
 
@@ -666,7 +666,7 @@ def fill_from_run(args):
     if not args.config_only:
         args.argmatch = args.argmatch or need(f"{step('5-matches')}/matches.csv")
         lk = f"{step('7-label-keys')}/label_keys.csv"
-        args.label_keys = args.label_keys or (lk if os.path.exists(lk) else None)
+        args.label_keys = args.label_keys or (lk if os.path.exists(lk) or os.path.exists(lk + ".zst") else None)
 
 
 def read_needles(path):
@@ -674,7 +674,7 @@ def read_needles(path):
     matches.csv is too big for pandas, and its rows have more fields than its header."""
     needles = set()
     csv.field_size_limit(1 << 30)  # (matches.csv has long fields)
-    with open(path, newline="") as f:
+    with common.open_text(path, newline="") as f:
         r = csv.reader(f)
         ni = next(r).index("needle")
         for row in r:

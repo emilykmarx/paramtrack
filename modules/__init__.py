@@ -25,11 +25,23 @@ def load(module):
     raise ValueError(f"no module {module!r} in {HERE} (known: {', '.join(names())})")
 
 
+# Where this repo's files were before it moved out of golang.org-x-tools (2026-11-18) => where they are now
+_GOPLS_OLD = "/home/emily/projects/config_tracing/golang.org-x-tools/gopls"
+_REPO = os.path.dirname(HERE)
+OLD_LOCATIONS = {f"{_GOPLS_OLD}/internal/cmd/conftamer/querygraph/paramtrack": _REPO,
+                 f"{_GOPLS_OLD}/internal/cmd/conftamer/querygraph/configkeys/stats": f"{_REPO}/stats",
+                 f"{_GOPLS_OLD}/results": f"{_REPO}/results"}
+
+
 def moved(path):
     """A settings.json path as of now: runs from before 2026-11-12 recorded paramtrack/ignore/<module>.txt and
     paramtrack/transformed/<module>.txt, since moved to modules/<module>/ignore.txt and transformed.txt; runs from
     before 2026-11-14 recorded documented-key lists outside paramtrack (config_tracing/caddy-config-keys/,
-    prom-test-infra/prombench/), since moved to modules/<module>/documentedkeys/ with the same names"""
+    prom-test-infra/prombench/), since moved to modules/<module>/documentedkeys/ with the same names; runs from before
+    2026-11-18 recorded paths in golang.org-x-tools, since moved to this repo (OLD_LOCATIONS)"""
+    for old, now in OLD_LOCATIONS.items():
+        if path and path.startswith(old + "/") and not os.path.exists(path):
+            path = now + path[len(old):]
     if path and not os.path.exists(path):
         d, f = os.path.split(path)
         kind = os.path.basename(d)

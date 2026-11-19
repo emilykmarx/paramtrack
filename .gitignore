@@ -1,2 +1,18 @@
 # Python bytecode from running stats.py and paramtrack
 __pycache__/
+
+# results/: runs we keep (RUNS.md). Their small inputs and outputs are tracked; these large or regenerable files
+# aren't (the largest are kept zstd-compressed next to where they were: common.open_text reads them)
+results/**/matches.csv
+results/**/*.zst
+results/**/events.jsonl
+results/**/stacklog.txt
+results/**/pod.log
+results/**/label_keys.csv
+results/**/configkeys.csv
+results/**/configkeys_graph.csv
+results/**/*.html
+results/**/bin/
+results/**/configkeys
+results/**/amtool
+results/*/tmp/

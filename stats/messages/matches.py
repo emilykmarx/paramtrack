@@ -80,7 +80,7 @@ def unambiguous_keys(run):
 def needle_full_keys(run):
     """needle => the full keys step 7's evidence rows give it"""
     fks = collections.defaultdict(set)
-    for r in csv.DictReader(open(f"{layout.step_dir(run, '7-label-keys')}/label_keys.csv", newline="")):
+    for r in csv.DictReader(stats.common.open_text(f"{layout.step_dir(run, '7-label-keys')}/label_keys.csv", newline="")):
         if r["evidence"] == "True" and r["full_key"]:
             fks[r["needle"]].add(r["full_key"])
     return fks
@@ -121,7 +121,7 @@ def call_matches(run, wanted_calls, kept, config_values):
     out = collections.defaultdict(set)
     left_out = collections.Counter()
     paths = {}  # interned type paths
-    with open(f"{layout.step_dir(run, '5-matches')}/matches.csv", newline="") as f:
+    with stats.common.open_text(f"{layout.step_dir(run, '5-matches')}/matches.csv", newline="") as f:
         r = csv.reader(f)
         h = next(r)
         ni, ci, ti = h.index("needle"), h.index("call"), h.index("types")
