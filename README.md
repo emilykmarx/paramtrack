@@ -188,6 +188,7 @@ Columns:
 - `confidence_all`, `confidence_eligible`: 1 for an evidence row. For an inferred row, the share of its section's in-scope keys that are evidence for the message: out of all of them (`confidence_all`), and out of its eligible keys (`confidence_eligible`).
 
 `summary.txt` counts rows (evidence and inferred), messages, full keys and sections, and lists needles with no concrete key and concrete keys with no full key.
+- `unambiguous`: whether the full key is unambiguous (see TERMINOLOGY.md; values are compared across all the module's config sources in the run), as in stats.py's "Unambiguous" column; empty if the row has no full key. An evidence row whose key is ambiguous may not be real evidence: its needle may stand for another concrete key, or come from the code rather than the config. The confidences don't account for this.
 
 ## Running the testbed
 The testbed runs on the GCE VM `--vm` (default `paramtrack-e2e`). Paramtrack orchestrates it over ssh as follows (all part of `paramtrack.py`):

@@ -10,6 +10,7 @@ import argparse
 import collections
 import csv
 import filecmp
+import functools
 import json
 import os
 import shutil
@@ -44,6 +45,11 @@ class Module:
 
     def file(self, step, name):
         return f"{self.dir}/{step}/{name}"
+
+    @functools.cached_property
+    def go_literals(self):
+        """The string literals in the module's code (stats.go_string_literals; for value ambiguity)"""
+        return stats.go_string_literals(os.path.abspath(self.src), self.mod)
 
 
 class Target:
@@ -380,6 +386,18 @@ class Workflow:
         eligible = {fk for c in config.values() if any(v.replace("\n", "\\n") in searched for v in c["values"])
                     for fk in c["full_keys"]}
 
+        # Unambiguous full keys (stats.ValueKeys, as stats.py's Unambiguous column: over the in-scope concrete keys of
+        # every root of the run, and the module's string literals)
+        in_full, in_config = stats.load_configkeys(t.file("4-configkeys", "configkeys.csv"))
+        stats.apply_ignore(in_full, in_config, [], meta)
+        stats.apply_ignore(in_full, in_config, ignore)
+        covered_by = collections.defaultdict(set)
+        for k, c in in_config.items():
+            for fk in c["full_keys"]:
+                covered_by[fk].add(k)
+        unambiguous = stats.ValueKeys(in_config, stats.other_roots_values(t.dir, t.m.mod)).unambiguous_keys(
+            covered_by, t.m.go_literals)
+
         # Evidence rows: each (message, needle) row of the join, with every concrete key whose value the needle is
         rows, no_key, no_full_key = [], set(), set()
         for r in csv.DictReader(open(t.m.file("6-label-values", "joined.csv"), newline="")):
@@ -420,8 +438,8 @@ class Workflow:
         with open(f"{d}/label_keys.csv", "w", newline="") as f:
             w = csv.writer(f, lineterminator="\n")
             w.writerow(["message_kind", "message_label", "needle", "concrete_key", "full_key", "section",
-                        "section_keys", "evidence", "eligible", "confidence_all", "confidence_eligible"])
-            w.writerows(rows)
+                        "section_keys", "evidence", "eligible", "unambiguous", "confidence_all", "confidence_eligible"])
+            w.writerows(r[:9] + [r[4] in unambiguous if r[4] else ""] + r[9:] for r in rows)
 
         labels = {(r[0], r[1]) for r in rows}
         n_ev = sum(1 for r in rows if r[7] is True)

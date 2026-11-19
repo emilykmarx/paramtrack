@@ -86,6 +86,29 @@ def unambiguous_key(values, unambiguous_value):
     return bool(values) and all(unambiguous_value(v) for v in values)
 
 
+class ValueKeys:
+    """Value ambiguity (TERMINOLOGY.md: no other key in the module's concrete config(s) has the value), over the
+    in-scope concrete keys (not meta keys, nor --ignore's) of this root (config) and of the run's other roots
+    (other_occ: other_roots_values; a module with several roots loads every root's config into the same memory)"""
+
+    def __init__(self, config, other_occ):
+        self.config, self.other_occ = config, other_occ
+        self.occ = collections.defaultdict(set)  # value => this root's concrete keys
+        for k, c in config.items():
+            for v in c["values"]:
+                self.occ[v.replace("\n", "\\n")].add(k)
+
+    def n_keys(self, v):
+        """The concrete keys v stands for, in all the run's roots"""
+        return len(self.occ[v]) + len(self.other_occ.get(v, ()))
+
+    def unambiguous_keys(self, covered_by, lits):
+        """The full keys of covered_by (full key => this root's concrete keys) that are unambiguous (unambiguous_key;
+        lits: the module's Go string literals, go_string_literals)"""
+        return {fk for fk in covered_by if unambiguous_key(key_values(fk, covered_by, self.config),
+                                                           lambda v: self.n_keys(v) == 1 and v not in lits)}
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Inputs
 
@@ -141,20 +164,20 @@ def meta_keys(full, mod):
     return meta
 
 
-def other_roots_values(args, mod):
+def other_roots_values(run, mod):
     """Value (escaped as param_values.txt has it) => the concrete keys ("<root>:<key>") that have it in the run's other
     roots of the module: their step 4 configkeys csvs, without their meta keys and --ignore's (each root's ignore
-    file), as this root's. Empty for a module with one root. A run's roots are its root's siblings,
-    <out>/<module>/<root> (paramtrack's layout.py)."""
+    file), as this root's. Empty for a module with one root. run: a root's directory; the run's roots are its
+    siblings, <out>/<module>/<root> (paramtrack's layout.py)."""
     if len(mod.CONFIG_SOURCES) == 1:
         return {}
-    if not args.run:
-        sys.exit(f"module {args.module} has several roots: value ambiguity counts the other roots' concrete keys, "
+    if not run:
+        sys.exit(f"module {mod.GO_MODULE} has several roots: value ambiguity counts the other roots' concrete keys, "
                  f"which stats.py finds from --run")
-    here = os.path.basename(os.path.normpath(args.run))
+    here = os.path.basename(os.path.normpath(run))
     out = collections.defaultdict(set)
     for name, r in mod.CONFIG_SOURCES.items():
-        path = layout.step_dir(os.path.join(os.path.dirname(os.path.normpath(args.run)), name), "4-configkeys")
+        path = layout.step_dir(os.path.join(os.path.dirname(os.path.normpath(run)), name), "4-configkeys")
         if name == here or not os.path.exists(f"{path}/configkeys.csv"):
             continue
         full, config = load_configkeys(f"{path}/configkeys.csv")
@@ -939,18 +962,9 @@ def main():
 
     # =============================================================================================================
     out.h("Q3. Values vs keys")
-    # Value ambiguity (TERMINOLOGY.md: no other key in the module's concrete config(s) has the value): occ has this
-    # root's concrete keys, other_occ the run's other roots' (a module with several roots loads every root's config
-    # into the same memory), both in scope (not meta keys, nor --ignore's)
-    occ = collections.defaultdict(set)  # value => concrete keys
-    for k, c in config.items():
-        for v in c["values"]:
-            occ[v.replace("\n", "\\n")].add(k)
-    other_occ = other_roots_values(args, mod)  # value => "<root>:<concrete key>"s
-
-    def n_keys(v):
-        """The concrete keys v stands for, in all the run's roots"""
-        return len(occ[v]) + len(other_occ.get(v, ()))
+    other_occ = other_roots_values(args.run, mod)  # value => "<root>:<concrete key>"s
+    value_keys = ValueKeys(config, other_occ)  # (value ambiguity)
+    occ, n_keys = value_keys.occ, value_keys.n_keys
 
     lits = go_string_literals(args.module_dir, mod)
     matched = set() if cfg_only else read_needles(args.argmatch)
@@ -1079,15 +1093,14 @@ def main():
     # =============================================================================================================
     out.h("Keys and sections by property")
     # Nested: each column also has the previous columns' properties (TERMINOLOGY.md)
-    def unambiguous(fk):
-        return unambiguous_key(key_values(fk, covered_by, config), lambda v: n_keys(v) == 1 and v not in lits)
+    unambiguous = value_keys.unambiguous_keys(covered_by, lits)
 
     all_rows = full_key_rows(full_all, docs_all)
     in_scope = set(keys.key)
     target = set(keys[keys.target].key)
     concrete = target & set(keys[keys.in_config].key)
     props = [("Full", set(all_rows.key)), ("In-scope", in_scope), ("Target", target), ("Concrete", concrete),
-             ("Unambiguous", {fk for fk in concrete if unambiguous(fk)})]
+             ("Unambiguous", concrete & unambiguous)]
     out.p("Each column's keys also have the previous columns' properties; a % is of the previous column. "
           "Keys per section: median/mean over the sections with the property. Min. confidence: median/mean, over the "
           "keys with the property, of 1 / the in-scope keys in the key's section" +
