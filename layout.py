@@ -20,6 +20,7 @@ def old(run):
 
 def step_dir(run, step):
     """The directory of a step's outputs, for a root's directory run (<out>/<module>/<root>)"""
+    run = os.path.normpath(run)  # (a trailing slash would make dirname the root's directory itself)
     if old(run) or step not in MODULE_STEPS:
         return f"{run}/{step}"
     return f"{os.path.dirname(run)}/{step}"
@@ -27,4 +28,5 @@ def step_dir(run, step):
 
 def testbed_dir(run, step):
     """The directory of a testbed step's own files (testbed.json, logs), for a root's directory run"""
+    run = os.path.normpath(run)  # (as in step_dir)
     return f"{run}/{step}" if old(run) else f"{os.path.dirname(os.path.dirname(run))}/testbed/{step}"
