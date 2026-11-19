@@ -21,14 +21,10 @@ In the checkout, and in prometheus/common at the version it uses (`go list -m -f
 - Earlier configs for this testbed, as examples only. Don't copy their choices without examining whether they are optimal. But, it is ok to reuse their code (if so, copy it into your own directory), and to learn from their choices (if so, include them in the reason you output):
   - `prom-test-infra/prombench/fuzzed_prometheus.yaml`: the user's hand-fuzzed config, which extends the shipped
     config with many more keys, each with a value meant to be distinctive and inert;
-  - `gopls/internal/cmd/conftamer/querygraph/paramtrack/concreteconfig/prometheus-prombench-fuzzed-base-2026-11-04/`:
-    an earlier run of this skill that extended the fuzzed config (its `decisions.md` records what it learned about
-    the testbed, e.g. which endpoints accept which credentials);
-  - `gopls/internal/cmd/conftamer/querygraph/paramtrack/concreteconfig/prometheus-prombench/`: an earlier run
-    (2026-11-05) that extended the shipped config without changing its values: its `decisions.md` records each key
-    it set or skipped and why (e.g. which keys fail at runtime, where Prometheus can write files, which credentials
-    the testbed's endpoints check), and `gen.py` writes its config and files from the shipped config. Its output,
-    with the scorecard and label comparison, is `gopls/results/prom/concreteconfig-upstream-base/`.
+  - Earlier runs of this skill, in `results/prom/`: `concreteconfig-2026-11-08/` (the config paramtrack's runs use;
+    its `diff.md` records each key it set or skipped and why, e.g. which keys fail at runtime, where Prometheus can
+    write files, which credentials the testbed's endpoints check, and `work/gen.py` writes its config and files from
+    the shipped config) and `concreteconfig-upstream-base/` (2026-11-05, with its scorecard and label comparison).
 
 ## Checking a config
 - `promtool check config <file>`: parses and validates, and checks that files the config names exist, so run it
