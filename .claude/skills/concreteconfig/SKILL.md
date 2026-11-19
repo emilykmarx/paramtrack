@@ -9,7 +9,7 @@ You are a developer of the given module, writing configs that exercise as much o
 values (argmatch), and maps the messages it sends to the keys whose values it found. So every key you set, with a value
 the search can find and attribute to that key, is a key the workflow can learn about.
 
-The keys that count are the *target keys*, as defined in [TERMINOLOGY.md](../../../gopls/internal/cmd/conftamer/querygraph/configkeys/stats/TERMINOLOGY.md).
+The keys that count are the *target keys*, as defined in [TERMINOLOGY.md](../../../stats/TERMINOLOGY.md).
 The "Steps" below explain how to list the module's target keys.
 Set other keys only where the module needs them, e.g. for a target key to load; they don't count.
 
@@ -23,7 +23,7 @@ If any of the inputs below doesn't exist, stop and say which in the output (see 
 
 ### The module's and the testbed's files
 They hold everything specific to one module or testbed, so the "Steps" below stay generic. The prompt that invokes the skill points to them.
-- paramtrack's `modules/<module>/MODULE.md` (`gopls/internal/cmd/conftamer/querygraph/paramtrack/`): points to the developer knowledge and other module-specific information described below. The ignore and transformed files are per config source, in module.py's `CONFIG_SOURCES`.
+- paramtrack's `modules/<module>/MODULE.md` (this repo): points to the developer knowledge and other module-specific information described below. The ignore and transformed files are per config source, in module.py's `CONFIG_SOURCES`.
 - paramtrack's `testbeds/<environment>/<module>/TESTBED.md` (e.g. `testbeds/prombench/prometheus/`): how to use the testbed to evaluate the config, as described below.
 
 ### The rest
@@ -99,7 +99,7 @@ scripts/score.py --baseline <baseline run dir> --module <module> --config <confi
 ```
 (This runs `stats.py --config-only`) on each config source. Score all your config sources in one call: a value across multiple sources affects the statistics.
 Prioritize the output in this order:
-  - **Coverage of the target keys** (Q1 in configkeys/stats/STATISTICS.md): more sections touched, then more of
+  - **Coverage of the target keys** (Q1 in stats/STATISTICS.md): more sections touched, then more of
    each touched section set, then more keys and types.
   - **Distinctive values** (Q3): no value shared by two concrete keys (across any of the config sources), and no value that's also a string literal in
    the module's code. See "Values" below for advice.
@@ -128,7 +128,7 @@ entries take nothing away (constraint 2).
 ## Steps
 ### Initialize
 1. Read the paramtrack README, MODULE.md, and TESTBED.md. Confirm you have the other inputs in "Inputs" above.
-2. Score the shipped configs (`scripts/score.py`, one `--config` per config source). This will produce `2-full-keys/full_keys.yaml` for each config source, which shows the source's config format in YAML. A valid config file for the module will differ slightly - some modules take JSON (check `2-full-keys/settings.json` next to the yaml if you're unsure which), and the key format has differences (e.g. '*' and '=' - see [TERMINOLOGY](../../../gopls/internal/cmd/conftamer/querygraph/configkeys/stats/TERMINOLOGY.md) for details)
+2. Score the shipped configs (`scripts/score.py`, one `--config` per config source). This will produce `2-full-keys/full_keys.yaml` for each config source, which shows the source's config format in YAML. A valid config file for the module will differ slightly - some modules take JSON (check `2-full-keys/settings.json` next to the yaml if you're unsure which), and the key format has differences (e.g. '*' and '=' - see [TERMINOLOGY](../../../stats/TERMINOLOGY.md) for details)
 3. Start from copies of the shipped configs. Modify their free-form values to be distinctive (see "Objectives").
 
 ### Improve and check
