@@ -17,7 +17,7 @@ In the checkout, and in prometheus/common at the version it uses (`go list -m -f
 - `documentation/examples/`: realistic configs, including each SD mechanism.
 - The parsing and validation code, for what the docs leave out: `UnmarshalYAML` and `Validate` methods in
   `config/config.go`, `discovery/<sd>/`, `model/relabel/relabel.go`, and prometheus/common's `config/http_config.go`.
-- configkeys/stats/STATISTICS.md, Q4: the keys the graph has but the docs don't, and why.
+- stats/STATISTICS.md, Q4: the keys the graph has but the docs don't, and why.
 - Earlier configs for this testbed, as examples only. Don't copy their choices without examining whether they are optimal. But, it is ok to reuse their code (if so, copy it into your own directory), and to learn from their choices (if so, include them in the reason you output):
   - `prom-test-infra/prombench/fuzzed_prometheus.yaml`: the user's hand-fuzzed config, which extends the shipped
     config with many more keys, each with a value meant to be distinctive and inert;

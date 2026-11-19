@@ -73,7 +73,7 @@ any JSON the linked modules accept. That is a side door, not a documented input.
 
 ## Rerun
 ```sh
-cd /home/emily/projects/config_tracing/golang.org-x-tools/gopls/internal/cmd/conftamer/querygraph/paramtrack/modules/caddy/documentedkeys
+cd /home/emily/projects/config_tracing/paramtrack/modules/caddy/documentedkeys
 timeout 600 python3 list_caddy_keys.py --ingress-dir /home/emily/projects/config_tracing/caddyserver-ingress   # add --refetch to re-download raw/
 timeout 180 uv run --with pyyaml python controller_keys.py --ingress-dir /home/emily/projects/config_tracing/caddyserver-ingress
 python3 check_against_source.py ~/go/pkg/mod/github.com/caddyserver/caddy/v2@v2.11.4

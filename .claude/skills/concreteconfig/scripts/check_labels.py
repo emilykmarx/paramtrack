@@ -32,8 +32,8 @@ import subprocess
 import sys
 
 import baseline  # (next to this file)
+from baseline import common  # (paramtrack's paths)
 
-QUERYGRAPH = "/home/emily/projects/config_tracing/golang.org-x-tools/gopls/internal/cmd/conftamer/querygraph"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -63,7 +63,7 @@ def qualified(values, module, flag):
 def known_timing(module):
     """The module's known timing-dependent labels: those in its testbed directory's varying-labels*.txt files (lines
     "  runs <runs>: <label>", count_labels.py --varying), and the files"""
-    files = sorted(glob.glob(f"{QUERYGRAPH}/paramtrack/testbeds/prombench/{module}/varying-labels*.txt"))
+    files = sorted(glob.glob(f"{common.REPO}/testbeds/prombench/{module}/varying-labels*.txt"))
     labels = set()
     for f in files:
         for line in open(f):
@@ -98,7 +98,7 @@ def compare(base, outs, tb, show_list, counted):
                     unknown += 1
             print(line)
         if code == 1 and not unknown:
-            print(f"all missing labels are known timing-dependent ones ({', '.join(os.path.relpath(f, QUERYGRAPH) for f in files)})")
+            print(f"all missing labels are known timing-dependent ones ({', '.join(os.path.relpath(f, common.REPO) for f in files)})")
             code = 0
         sys.stdout.flush()
         if m in counted:
@@ -143,12 +143,12 @@ def main():
     # The configured modules' graphs, kept in the baseline by score.py (else paramtrack builds them, and they're kept)
     for m in mods:
         baseline.copy_graph(base, m, out)
-    cmd = [sys.executable, f"{QUERYGRAPH}/paramtrack/paramtrack.py", "--out", out, "--until", "3", "--redo", "2"]
+    cmd = [sys.executable, f"{common.REPO}/paramtrack.py", "--out", out, "--until", "3", "--redo", "2"]
     cmd += [x for c in configs for x in ("--config", c)] + [x for f in files for x in ("--config-files", f)]
     cmd += baseline.testbed_args(base)
     os.makedirs(out, exist_ok=True)
     with open(f"{out}/paramtrack.log", "w") as log:
-        p = subprocess.run(cmd, cwd=f"{QUERYGRAPH}/paramtrack", stdout=log, stderr=subprocess.STDOUT)
+        p = subprocess.run(cmd, cwd=common.REPO, stdout=log, stderr=subprocess.STDOUT)
     if p.returncode != 0:
         fail(f"paramtrack exited {p.returncode}; see {out}/paramtrack.log")
     for m in mods:

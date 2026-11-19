@@ -19,7 +19,7 @@ config is, its config sources and how the documented keys were listed are in
 - **Transformed-keys file:** `config` has [transformed-config.txt](transformed-config.txt): the URL, matcher and
   time-interval range keys, whose values are stored parsed (its comment says how), so they aren't target keys. Set them
   where the config needs them (every URL, to keep sends inside the pod); they don't count.
-- **An earlier config:** `gopls/results/alertmanager/concreteconfig-2026-11-17/` (this skill's first run on
+- **An earlier config:** `results/alertmanager/concreteconfig-2026-11-17/` (this skill's first run on
   Alertmanager): `work/gen.py` writes its configs and files, and `diff.md` gives each key's reason. Reuse its code if it
   helps (copy it into your own directory), but check its choices rather than copying them.
 
@@ -33,7 +33,7 @@ In the checkout:
 - The parsing and validation code, for what the docs leave out: the `UnmarshalYAML` methods in `config/config.go` and
   `config/notifiers.go` (defaults, the global settings receivers inherit, "at most one of" checks), and
   prometheus/common's `config/http_config.go` (`http_config`).
-- configkeys/stats/STATISTICS.md, Q4, and module.py's `graph_docs_reason`: the keys the graph has but the docs don't,
+- stats/STATISTICS.md, Q4, and module.py's `graph_docs_reason`: the keys the graph has but the docs don't,
   and why.
 
 ## Checking a config

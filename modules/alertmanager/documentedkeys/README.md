@@ -44,7 +44,7 @@ Alertmanager differs.
 
 ## Rerun
 ```sh
-cd /home/emily/projects/config_tracing/golang.org-x-tools/gopls/internal/cmd/conftamer/querygraph/paramtrack/modules/alertmanager/documentedkeys
+cd /home/emily/projects/config_tracing/paramtrack/modules/alertmanager/documentedkeys
 timeout 60 python3 list_config_keys.py   # --docs-dir DIR, --out-dir DIR; prints counts and recursion cuts to stderr
 ```
 It exits non-zero if a section has more than one candidate code block or a key is listed twice.

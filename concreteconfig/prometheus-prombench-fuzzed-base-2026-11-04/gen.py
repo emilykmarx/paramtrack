@@ -18,7 +18,7 @@ import uuid
 import yaml
 from Crypto.PublicKey import RSA
 
-sys.path.insert(0, "/home/emily/projects/config_tracing/golang.org-x-tools/.claude/skills/concreteconfig/scripts")
+sys.path.insert(0, "/home/emily/projects/config_tracing/paramtrack/.claude/skills/concreteconfig/scripts")
 from value import token  # noqa: E402
 
 DIR = "/etc/prometheus/config"

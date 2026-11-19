@@ -6,7 +6,7 @@ description: Start onboarding a new Go module to paramtrack's param tracking wor
 # documentedkeys
 
 paramtrack's workflow compares the keys its static analysis finds with the keys the module documents (stats.py's
-`--docs`; Q4 in configkeys/stats/STATISTICS.md). For a new module, the documented keys come first, and finding them
+`--docs`; Q4 in stats/STATISTICS.md). For a new module, the documented keys come first, and finding them
 means working out what the module's config even is. This skill runs that investigation in a **fresh background
 agent** (the Agent tool, `general-purpose`, `run_in_background: true`), not a fork: it needs none of this session's
 context, and the main session stays free meanwhile.
@@ -18,7 +18,7 @@ Ask the user only for what you can't find:
 - **Checkouts:** local paths, usually under `/home/emily/projects/config_tracing/`; for a module that imports another
   project's config code (e.g. Caddy's ingress controller and Caddy), all of them. Note the most recent tag in the checkout. If there are no recent tags, ask the user.
 - **Documentation website,** if the repos' docs might not be enough (e.g. https://caddyserver.com/).
-- **Output directory:** default to a `documentedkeys` directory under the module's directory in paramtrack (e.g. [here](../../../gopls/internal/cmd/conftamer/querygraph/paramtrack/modules/prometheus/documentedkeys) for Prometheus).
+- **Output directory:** default to a `documentedkeys` directory under the module's directory in paramtrack (e.g. [here](../../../modules/prometheus/documentedkeys) for Prometheus).
 
 ## 2. Check the checkouts for the user's notes
 Run `git -C <dir> status --short` in each checkout. Untracked files that don't look generated (notes, scratch

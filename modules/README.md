@@ -56,5 +56,5 @@
 # Messages
 - `ARGMATCH_ARGS` (optional): Build args for argmatch.
 - `CHAIN_FUNCTIONS` (optional, default (GO_MODULE + "/",)): prefixes of the function names that count as the module's
-  own on message chains (configkeys/stats/messages/chains.py: chain groups, similarity, origins), e.g. Caddy's, whose
+  own on message chains (stats/messages/chains.py: chain groups, similarity, origins), e.g. Caddy's, whose
   code runs the controller's binary but isn't under its Go module

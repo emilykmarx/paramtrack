@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure candidate concrete configs for a module with the statistics they control: runs paramtrack's steps 2 and 4 on
 them (`--only`: their copies, and configkeys on them), one per config source the candidate sets, then `stats.py
---config-only --run` on each config source (configkeys/stats/STATISTICS.md, "Statistics the concrete config controls"),
+--config-only --run` on each config source (stats/STATISTICS.md, "Statistics the concrete config controls"),
 and prints the numbers the skill optimizes, per config source. The config sources are scored together: a value set in
 two of the module's config sources is ambiguous in both (stats.py counts the run's other config sources' concrete keys).
 Each source's full tables are in <out>/<source>/config_stats.md, each value's ambiguity, literal and signal columns in
@@ -27,9 +27,7 @@ import subprocess
 import sys
 
 import baseline  # (next to this file)
-
-CT = "/home/emily/projects/config_tracing"
-QUERYGRAPH = f"{CT}/golang.org-x-tools/gopls/internal/cmd/conftamer/querygraph"
+from baseline import common  # (paramtrack's paths)
 
 
 def run(cmd, log, cwd=None, timeout=600):
@@ -77,17 +75,17 @@ def main():
     steps = ["full-keys", "configkeys"]
     if not baseline.copy_graph(base, name, out):
         steps.insert(0, "unmarshaler-graph")
-    cmd = [sys.executable, f"{QUERYGRAPH}/paramtrack/paramtrack.py", "--out", out, "--module", name]
+    cmd = [sys.executable, f"{common.REPO}/paramtrack.py", "--out", out, "--module", name]
     cmd += [x for root, path in sorted(configs.items()) for x in ("--config", f"{root}={path}")]
     cmd += [x for s in steps for x in ("--only", s)]
-    run(cmd, f"{out}/paramtrack.log", cwd=f"{QUERYGRAPH}/paramtrack", timeout=1800)
+    run(cmd, f"{out}/paramtrack.log", cwd=common.REPO, timeout=1800)
     baseline.keep_graph(base, name, out)
     for root in sorted(configs):
         # stats.py takes the rest from the root's run in <out>: step 2's settings, step 4's configkeys (and, for
         # ambiguity, the other roots' step 4)
         rout = f"{out}/{root}"
         os.makedirs(rout, exist_ok=True)
-        run([sys.executable, f"{QUERYGRAPH}/configkeys/stats/stats.py", "--config-only", "--run", f"{out}/{name}/{root}",
+        run([sys.executable, f"{common.STATS}/stats.py", "--config-only", "--run", f"{out}/{name}/{root}",
              "--out", rout], f"{rout}/stats.log", timeout=900)
         print(f"\n======== {name} config source {root}: {configs[root]}")
         md = open(f"{rout}/config_stats.md").read()

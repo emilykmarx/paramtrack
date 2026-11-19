@@ -1,5 +1,5 @@
 # A small subset of Prometheus' config: one full key per category. Classifications are from the 2026-11-08
-# concreteconfig skill run (gopls/results/prom/concreteconfig-2026-11-08/config.yaml), scored with today's
+# concreteconfig skill run (results/prom/concreteconfig-2026-11-08/config.yaml), scored with today's
 # --ignore (paramtrack/ignore/prometheus.txt) and --transformed (paramtrack/transformed/prometheus.txt).
 # `{}`: a key the skill's config doesn't set.
 alerting:

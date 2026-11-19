@@ -13,12 +13,12 @@ points' `settings`).
   datasources and dashboards files only; `plugins` and `alerting` start from an empty file (TESTBED.md).
 - **Full keys:** a datasource's `jsonData`/`secureJsonData` keys and a contact point's `settings` keys have a `k=v`
   segment for the item's type, e.g. `datasources.type=prometheus.jsonData.httpMethod` and
-  `contactPoints.receivers.type=slack.settings.url` (TERMINOLOGY.md, configkeys/stats/, gives the format).
+  `contactPoints.receivers.type=slack.settings.url` (TERMINOLOGY.md, stats/, gives the format).
 - **Ignore files:** per config source, in module.py's `CONFIG_SOURCES`, each with a comment saying why: `datasources`:
   [ignore-datasources.txt](ignore-datasources.txt) (the SQL datasources, which aren't HTTP, and Azure Monitor);
   `alerting`: [ignore-alerting.txt](ignore-alerting.txt) (contact points that aren't HTTP, `email` and `mqtt`, or that
   post to fixed third-party endpoints, `line`, `pushover`, `telegram`, `threema`). No transformed-keys file.
-- **An earlier config:** `gopls/results/grafana/concreteconfig-2026-11-17/` (this skill's first run on Grafana):
+- **An earlier config:** `results/grafana/concreteconfig-2026-11-17/` (this skill's first run on Grafana):
   `work/gen.py` writes its configs, and `diff.md` gives each key's reason. Reuse its code if it helps (copy it into
   your own directory), but check its choices rather than copying them.
 
@@ -35,7 +35,7 @@ In the checkout:
   and `types.go`; for `jsonData`, each datasource plugin's settings struct (module.py's `extra_graph` lists them:
   `settings_types.json` in a run's `1-unmarshaler-graph/`); for contact point settings, the integrations in
   `github.com/grafana/alerting` (module cache).
-- configkeys/stats/STATISTICS.md, Q4, and module.py's `graph_docs_reason`: the keys the graph has but the docs don't,
+- stats/STATISTICS.md, Q4, and module.py's `graph_docs_reason`: the keys the graph has but the docs don't,
   and why.
 
 ## Checking a config

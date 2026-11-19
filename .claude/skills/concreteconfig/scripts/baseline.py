@@ -11,9 +11,9 @@ import os
 import shutil
 import sys
 
-# paramtrack's modules
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "../../../../gopls/internal/cmd/conftamer/querygraph/paramtrack"))
+# paramtrack's modules and paths (common.py)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../.."))  # (the repo root)
+import common  # noqa: E402,F401  (paramtrack's paths; check_labels.py and score.py use it)
 import layout  # noqa: E402,F401  (where a run's step outputs are; check_labels.py uses it)
 import modules  # noqa: E402
 import testbeds  # noqa: E402  (testbed.json's settings of earlier testbeds: recorded)

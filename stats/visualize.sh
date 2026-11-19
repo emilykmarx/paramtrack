@@ -13,7 +13,9 @@
 # Usage: visualize.sh [RESULTS [GO_MODULE]]  (GO_MODULE: the graph's module prefix, default Prometheus')
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-R=${1:-$here/../../../../../../results/prom/stats}
+R=${1:-$here/../results/prom/stats}
+# gopls conftamer's parse/prettify, in golang.org-x-tools (its path: ../common.py)
+prettify=$(python3 -c "import sys; sys.path.insert(0, '$here/..'); import common; print(common.QUERYGRAPH)")/../parse/prettify
 R=$(cd "$R" && pwd)
 module=${2:-github.com/prometheus/prometheus}
 
@@ -65,7 +67,7 @@ PY
 render() {
   local stem=$1 attrs=$2 title=$3 description=$4 zero_color=$5
   shift 5
-  (cd "$here/../../../parse/prettify" && timeout 300 go run . --infile "$R/unmarshaler_subgraph.text" \
+  (cd "$prettify" && timeout 300 go run . --infile "$R/unmarshaler_subgraph.text" \
     --outfile "$R/$stem.gv" --module-prefix "$module" \
     --node-attrs "$attrs" "$@")
 

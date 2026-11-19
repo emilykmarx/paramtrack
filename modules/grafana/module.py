@@ -10,6 +10,8 @@ import json
 import os
 import subprocess
 
+import common  # (paramtrack's paths)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 CT = "/home/emily/projects/config_tracing"
 
@@ -44,7 +46,6 @@ GOLITS_PACKAGE = "./pkg/cmd/grafana"
 GOLITS_TAGS = "oss"  # (argmatch.Dockerfile's build)
 TITLE = "Grafana, roots: its four provisioning file kinds"
 
-GOPLS = os.path.abspath(f"{HERE}/../../../../../../..")  # the gopls module (settings_types.go needs golang.org/x/tools)
 GG = "github.com/grafana/grafana"
 DATASOURCE = f"{GG}/pkg/services/provisioning/datasources.upsertDataSourceFromConfigV1"  # a datasources list item
 RECEIVER = f"{GG}/pkg/services/provisioning/alerting.ReceiverV1"  # a contact point's receivers list item
@@ -58,7 +59,8 @@ def extra_graph(module_dir, out_path, timeout=1800):
       (or, for a struct declared in the function that decodes them, its fields);
     - hand-picked (by_key.py): keys read by key from the maps, and the notification policies' decode.
     Writes settings_types.json next to out_path, for the record."""
-    r = subprocess.run(["go", "run", f"{HERE}/settings_types.go", module_dir], cwd=GOPLS, capture_output=True,
+    # (run from the gopls module: settings_types.go needs golang.org/x/tools)
+    r = subprocess.run(["go", "run", f"{HERE}/settings_types.go", module_dir], cwd=common.GOPLS, capture_output=True,
                        text=True, timeout=timeout)
     if r.returncode != 0:
         raise RuntimeError(f"settings_types.go failed ({r.returncode}): {r.stderr[-3000:]}")

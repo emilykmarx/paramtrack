@@ -18,12 +18,11 @@ import sys
 import common
 import layout  # (where a run's step outputs are)
 import modules  # (modules/<module>/module.py: each module's settings and hooks)
-from common import ARGMATCH_LABELS, GOPLS, QUERYGRAPH, log_command, run, say, source_version
+from common import ARGMATCH_LABELS, CONFIGKEYS, GOPLS, STATS, log_command, run, say, source_version
 import testbeds
 from testbeds import OUTPUTS, PrombenchVM
 
 # stats.py's full key and section rules (STATISTICS.md); step 8 runs it
-STATS = f"{QUERYGRAPH}/configkeys/stats"
 sys.path.insert(0, STATS)
 import stats  # noqa: E402
 
@@ -101,7 +100,7 @@ class Workflow:
         if getattr(self, "_configkeys_built", False):
             return bin
         os.makedirs(os.path.dirname(bin), exist_ok=True)
-        run(["go", "build", "-o", bin, "."], cwd=f"{QUERYGRAPH}/configkeys", log=f"{bin}.build.log", timeout=600)
+        run(["go", "build", "-o", bin, "."], cwd=CONFIGKEYS, log=f"{bin}.build.log", timeout=600)
         self._configkeys_built = True
         return bin
 
@@ -439,7 +438,7 @@ class Workflow:
             say(line)
 
     def stats(self, t, d):
-        """stats.py's statistics and visuals (../configkeys/stats/STATISTICS.md) on the target's outputs (--run: the
+        """stats.py's statistics and visuals (stats/STATISTICS.md) on the target's outputs (--run: the
         earlier steps' outputs and settings.json; --ignore and --transformed as given to this invocation), then
         visualize.sh's coloured graphs"""
         shutil.copy(t.m.file("1-unmarshaler-graph", "unmarshaler_subgraph.text"), d)  # visualize.sh reads it here

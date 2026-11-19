@@ -8,7 +8,7 @@ prompt=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 mkdir -p "$2"
 out=$(cd "$2" && pwd)
 limit=${3:-14400}
-cd /home/emily/projects/config_tracing/golang.org-x-tools
+cd /home/emily/projects/config_tracing/paramtrack
 # What the run starts from: the tools' checkouts (local_build_versions.json; with the module's too in its checks'
 # paramtrack steps)
 python3 .claude/skills/concreteconfig/scripts/versions.py "$out" > /dev/null

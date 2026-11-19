@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Records what a skill run ran from: writes <out dir>/local_build_versions.json (paramtrack's common.LOCAL_VERSIONS)
-with the git version of the workflow's tool checkouts (common.CHECKOUTS: golang.org-x-tools, which holds the skills
+with the git version of the workflow's tool checkouts (common.CHECKOUTS: paramtrack, which holds the skills
 and their scripts, paramtrack and stats.py; dump_ancestors; conftamer) and of the module's checkout (its module.py's
 MODULE_DIR), as paramtrack records for each of its steps (common.write_versions).
 
@@ -27,8 +27,7 @@ import subprocess
 import sys
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "../../../../gopls/internal/cmd/conftamer/querygraph/paramtrack"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../.."))  # (the repo root)
 import common  # noqa: E402
 import modules  # noqa: E402
 import testbeds  # noqa: E402

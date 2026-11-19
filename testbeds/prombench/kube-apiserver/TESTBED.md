@@ -15,9 +15,9 @@ instrumented, configured and reloaded, and which fixtures it gets).
   `/hook` labels; its result.md). The runs, all on their shipped configs unless said: B8
   (`/tmp/paramtrack-b8-2026-11-17`, cluster reused), a check with Alertmanager's shipped config
   (`/tmp/paramtrack-chk-am-2026-11-17`, reused), B9 (`/tmp/paramtrack-b9-2026-11-17`, freshly deployed), Alertmanager's
-  two skill-run checks (`gopls/results/alertmanager/concreteconfig-2026-11-17/work/labels-1` and `labels-2`,
+  two skill-run checks (`results/alertmanager/concreteconfig-2026-11-17/work/labels-1` and `labels-2`,
   Alertmanager on its candidate configs, reused), Grafana's skill-run check
-  (`gopls/results/grafana/concreteconfig-2026-11-17/work/labels-1`, Grafana on its concrete configs, reused) and the
+  (`results/grafana/concreteconfig-2026-11-17/work/labels-1`, Grafana on its concrete configs, reused) and the
   joint check (`/tmp/paramtrack-full-am-gf-2026-11-17`, Alertmanager and Grafana on theirs, freshly deployed). The 81,
   with the runs that have each: [varying-labels-2026-11-17.txt](varying-labels-2026-11-17.txt) (`scripts/count_labels.py
   --varying` on the seven runs' kube-apiserver events). `scripts/check_labels.py` reads every `varying-labels*.txt`

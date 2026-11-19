@@ -5,9 +5,14 @@ import shlex
 import subprocess
 import time
 
+# Where the other checkouts are: the one place paramtrack, stats/ and the skills name them (paramtrack moved out of
+# golang.org-x-tools on 2026-11-18; gopls conftamer and configkeys stayed there)
 CT = "/home/emily/projects/config_tracing"
+REPO = os.path.dirname(os.path.abspath(__file__))  # this repo (paramtrack)
 GOPLS = f"{CT}/golang.org-x-tools/gopls"
 QUERYGRAPH = f"{GOPLS}/internal/cmd/conftamer/querygraph"
+CONFIGKEYS = f"{QUERYGRAPH}/configkeys"
+STATS = f"{REPO}/stats"
 ARGMATCH_LABELS = f"{CT}/dump_ancestors/argmatch-labels"
 
 
@@ -21,11 +26,13 @@ def source_version(path):
     return {"describe": git("describe", "--tags", "--always", "--dirty"), "commit": commit} if commit else None
 
 
-# The checkouts the workflow's tools come from (paramtrack's README, "Programs" and "Skills"), the same paths on the
-# VM: paramtrack, gopls conftamer, configkeys, stats.py and the skills; argmatch and argmatch-labels (join.py,
-# events_to_stacklog.py); contexttrack's patches. Each instrumented image copies parts of all three (the Dockerfiles)
-CHECKOUTS = {"golang.org-x-tools": f"{CT}/golang.org-x-tools", "dump_ancestors": f"{CT}/dump_ancestors",
-             "conftamer": f"{CT}/conftamer"}
+# The checkouts the workflow's tools come from (paramtrack's README, "Programs" and "Skills"): this repo (paramtrack,
+# stats.py and the skills); golang.org-x-tools (gopls conftamer, configkeys); dump_ancestors (argmatch and
+# argmatch-labels: join.py, events_to_stacklog.py); conftamer (contexttrack's patches). The last three are at the same
+# paths on the VM, where each instrumented image copies parts of them (the Dockerfiles); the VM gets this repo's files
+# copied in (testbeds.PrombenchVM), so there REPO is not a checkout
+CHECKOUTS = {"paramtrack": REPO, "golang.org-x-tools": f"{CT}/golang.org-x-tools",
+             "dump_ancestors": f"{CT}/dump_ancestors", "conftamer": f"{CT}/conftamer"}
 
 
 # What a step or skill run ran from, as each records it (write_versions): on this machine, and on the VM, where a

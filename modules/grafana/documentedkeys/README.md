@@ -3,7 +3,7 @@
 The documented keys of Grafana's provisioning YAML files, in the format of
 `../../prometheus/documentedkeys/prometheus_config_keys.txt`: one key per line, `<dotted key>\t<documented type>`.
 They are meant to be compared with the full keys the static analysis finds (see "Full key" in
-`configkeys/stats/TERMINOLOGY.md`). Conventions not restated here follow `../../prometheus/documentedkeys/README.md`
+`stats/TERMINOLOGY.md`). Conventions not restated here follow `../../prometheus/documentedkeys/README.md`
 and `../../caddy/documentedkeys/README.md`.
 
 ## What "the config" is (and what's in scope)
@@ -73,7 +73,7 @@ only the standard library.
 
 ## Rerun
 ```sh
-cd /home/emily/projects/config_tracing/golang.org-x-tools/gopls/internal/cmd/conftamer/querygraph/paramtrack/modules/grafana/documentedkeys
+cd /home/emily/projects/config_tracing/paramtrack/modules/grafana/documentedkeys
 timeout 60 python3 -I list_provisioning_keys.py   # --grafana-dir <checkout> --out-dir <dir>
 ```
 It runs in under a second and overwrites the lists here.

@@ -2,8 +2,8 @@
 
 # Sets up a fresh Ubuntu VM for paramtrack's prombench testbed (../../testbeds.py, upstream.py). Bootstrap:
 #   mkdir -p /home/emily/projects/config_tracing && cd /home/emily/projects/config_tracing &&
-#   git clone https://github.com/emilykmarx/golang.org-x-tools.git &&
-#   bash golang.org-x-tools/gopls/internal/cmd/conftamer/querygraph/paramtrack/testbeds/prombench/vm_setup.sh
+#   git clone https://github.com/emilykmarx/paramtrack.git &&
+#   bash paramtrack/testbeds/prombench/vm_setup.sh
 # Then log out and back in. upstream.py clones upstream prometheus/test-infra and builds its infra tool itself.
 
 set -x
@@ -65,6 +65,8 @@ cd /home/emily/projects/config_tracing
 git clone https://github.com/emilykmarx/prometheus.git
 pushd prometheus; git checkout prombench; popd
 git clone https://github.com/emilykmarx/argmatch.git dump_ancestors
+# gopls conftamer's stacklog package (the modules' argmatch.Dockerfile copy it)
+git clone https://github.com/emilykmarx/golang.org-x-tools.git
 # Caddy's ingress controller, for the prombench-caddyICingress-caddyIC testbed
 git clone https://github.com/emilykmarx/caddyserver-ingress.git
 git clone https://github.com/emilykmarx/conftamer

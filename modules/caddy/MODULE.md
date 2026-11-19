@@ -10,7 +10,7 @@ first.
 - **Module, root and format:** `--module caddy` (module.py: `github.com/caddyserver/ingress`, root
   `github.com/caddyserver/caddy/v2.Config`, JSON). The config is Caddy's JSON config (`caddy.Config`), which the
   controller otherwise generates from the cluster's Ingresses and its ConfigMap; the testbed loads yours in its place.
-- **Full keys:** TERMINOLOGY.md (configkeys/stats/) gives their format: a module picked by a key in its object is a
+- **Full keys:** TERMINOLOGY.md (stats/) gives their format: a module picked by a key in its object is a
   `k=v` segment (e.g. `apps.http.servers.*.routes.handle.handler=reverse_proxy.upstreams.dial`), a module in a module
   map is its name (`apps.http`), and selector keys (`...handle.handler`) are keys too. Map keys you choose are `*`.
 - **Ignore file and transformed-keys file:** none (every full key is in scope; none is marked transformed).
