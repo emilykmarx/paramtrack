@@ -59,7 +59,7 @@ def write_versions(path, modules=None):
 
 def open_text(path, newline=None):
     """Opens path for reading as text, or path.zst if only that exists, through the zstd binary. Runs kept in
-    results/ have their largest files zstd-compressed (RUNS.md)"""
+    results/ have their largest files zstd-compressed (results/runs/RUNS.md)"""
     if not os.path.exists(path) and os.path.exists(path + ".zst"):
         import io
         p = subprocess.Popen(["zstd", "-dcq", path + ".zst"], stdout=subprocess.PIPE)

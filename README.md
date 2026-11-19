@@ -14,7 +14,7 @@ uv run --with pandas --with matplotlib --with tabulate python paramtrack.py \
   [--vm paramtrack-e2e] [--wait 240] [--redo <step>] [--until <step>] [--only <step> ...]
 ```
 
-For a run you may want to keep, pass `--out results/runs/<date>-<name>`, since runs record absolute paths and later steps resume from earlier ones, so moving a run afterwards breaks those links; use `/tmp` only for throwaway runs. [RUNS.md](RUNS.md) indexes the kept runs and says how their large files are stored.
+For a run you may want to keep, pass `--out results/runs/<date>-<name>`, since runs record absolute paths and later steps resume from earlier ones, so moving a run afterwards breaks those links; use `/tmp` only for throwaway runs. [results/runs/RUNS.md](results/runs/RUNS.md) indexes the kept runs and says how their large files are stored.
 
 Output is produced for each module passed to `--module`. These modules will be configured with the corresponding `--config` (or their shipped config, if none is passed), and will be instrumented in the testbed. The other modules in the testbed run with the config prombench ships with, and are not instrumented.
 
