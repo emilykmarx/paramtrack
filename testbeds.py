@@ -10,7 +10,9 @@ Also run on the VM by PrombenchVM: testbeds.py --out DIR [--instrument MODULE [-
 
 import argparse
 import base64
+import collections
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -336,7 +338,8 @@ class PrometheusMeta(Component):
         return subprocess.run(cmd, capture_output=True, timeout=60).returncode == 0
 
     def reload(self):
-        self.reloader = popen(["bash", f"{EXPERIMENT}/reload_on_vm.sh", f"{self.out}/reload.log"])
+        self.reloader = popen(["bash", f"{EXPERIMENT}/reload_on_vm.sh", f"{self.out}/reload.log",
+                               common.testbed_agent("config-reload")])
         say(f"{self.NAME}: config reload started")
 
     def finish_reload(self):
@@ -400,12 +403,13 @@ class CaddyController(Component):
         return listen.removeprefix("tcp/").replace("localhost:", "127.0.0.1:")
 
     def running_config(self, admin):
-        p = self.exec("wget", "-qO-", f"http://{admin}/config/")
+        p = self.exec("wget", "-qO-", "-U", common.testbed_agent("config-reload"), f"http://{admin}/config/")
         return json.loads(p.stdout) if p.returncode == 0 and p.stdout.strip() else None
 
     def load_config(self, admin, force=False):
         """POSTs the config in the container to the admin API's /load; returns (ok, response)"""
-        p = self.exec("wget", "-qO-", "-S", "--header", "Content-Type: application/json",
+        p = self.exec("wget", "-qO-", "-S", "-U", common.testbed_agent("config-reload"),
+                      "--header", "Content-Type: application/json",
                       *(["--header", "Cache-Control: must-revalidate"] if force else []),
                       f"--post-file={self.CONFIG_IN_POD}", f"http://{admin}/load",
                       timeout=1200)  # (under argmatch, provisioning a large config can take minutes)
@@ -725,7 +729,8 @@ class Alertmanager(Component):
 
     def reload(self):
         """POST /-/reload: rereads the config file (the web config is reread on every request anyway)"""
-        p = self.exec("wget", "-qO-", "--post-data=", "localhost:9093/alertmanager/-/reload", timeout=120)
+        p = self.exec("wget", "-qO-", "-U", common.testbed_agent("config-reload"), "--post-data=",
+                      "localhost:9093/alertmanager/-/reload", timeout=120)
         open(f"{self.out}/reload.log", "w").write(f"exit {p.returncode}\n{p.stdout}{p.stderr}")
         say(f"{self.NAME}: config reloaded" if p.returncode == 0 else
             f"{self.NAME}: config reload failed; see {self.out}/reload.log")
@@ -787,7 +792,8 @@ class Grafana(Component):
         log, ok = [], True
         for root in sorted(self.configs):
             url = f"http://admin:$GF_SECURITY_ADMIN_PASSWORD@localhost:3000/grafana/api/admin/provisioning/{root}/reload"
-            p = self.exec("sh", "-c", f'wget -qO- --post-data= "{url}"', timeout=300)
+            agent = common.testbed_agent("config-reload")
+            p = self.exec("sh", "-c", f'wget -qO- -U {agent} --post-data= "{url}"', timeout=300)
             log.append(f"{root}: exit {p.returncode}\n{p.stdout}{p.stderr}")
             ok = ok and p.returncode == 0
         open(f"{self.out}/reload.log", "w").write("\n".join(log) + "\n")
@@ -807,12 +813,17 @@ class Prombench:
     is loaded), runs the workload for `wait` seconds: a simulated person views Grafana's dashboards through Caddy's
     ingress (the experiment's view_dashboards.py), and the loadgen querier queries the benchmark Prometheus instances
     through it; `RELOAD_AFTER` seconds in, each instrumented module reloads its config. Then captures each
-    instrumented module's outputs in <out_dir>/<module>/ (OUTPUTS, logs); every module's pod log
-    is in <out_dir>/<module>/pod.log. (`wait` counts from when every config is loaded, not from the restart: under
-    argmatch, loading a large config can take minutes, which would otherwise shorten the workload.)"""
+    instrumented module's outputs in <out_dir>/<module>/ (OUTPUTS, logs), and which address was which pod, node or
+    service then (ADDRESSES); every module's pod log is in <out_dir>/<module>/pod.log. (`wait` counts from when every
+    config is loaded, not from the restart: under argmatch, loading a large config can take minutes, which would
+    otherwise shorten the workload.)"""
 
     RELOAD_AFTER = 30
     READY_WITHIN = 600
+    # At the capture: {"time", "addresses": IP => the pods, nodes and services that had it, "backends": service =>
+    # its pods' IPs}, so the events' addresses (a received request's conn.remote, a sent request's host) can be named.
+    # A pod on the host network has its node's IP, so an IP can have several names.
+    ADDRESSES = "addresses.json"
 
     def __init__(self, wait=240):
         self.wait = wait
@@ -872,7 +883,8 @@ class Prombench:
                        stdout=open(f"{out_dir}/port-forward.log", "w"), stderr=subprocess.STDOUT)
             time.sleep(2)
             viewer = popen([sys.executable, f"{EXPERIMENT}/view_dashboards.py", "--url",
-                            "http://localhost:3000/grafana", "--duration", str(self.wait)],
+                            "http://localhost:3000/grafana", "--duration", str(self.wait),
+                            "--user-agent", common.testbed_agent("dashboard-viewer")],
                            stdout=open(f"{out_dir}/viewer.log", "w"), stderr=subprocess.STDOUT)
             helpers += [pf, viewer]
             helpers += [p for c in instrumented if (p := c.workload(out_dir, self.wait))]
@@ -890,6 +902,7 @@ class Prombench:
                 c.capture()
             for c in instrumented:
                 c.check_capture()
+            self.record_addresses(out_dir)
         finally:
             for p in helpers:
                 p.terminate()
@@ -902,6 +915,51 @@ class Prombench:
                     say(f"{c.NAME}: no pod log: {e}")
         for c in instrumented:
             c.summarize()
+
+
+    def record_addresses(self, out_dir):
+        """Writes ADDRESSES: each pod's, node's and service's IPs, as the cluster has them now ("addresses"), and each
+        service's backend IPs, from its EndpointSlices ("backends": "<namespace>/<service>" => IPs). Only warns if it
+        can't (it's for naming addresses afterwards, not for the run)"""
+        def get(*what):
+            p = subprocess.run(["kubectl", "--context", upstream.CTX, "get", *what, "-o", "json"], capture_output=True,
+                               text=True, timeout=120)
+            if p.returncode != 0:
+                raise RuntimeError(f"kubectl get {' '.join(what)}: {p.stderr.strip()[-300:]}")
+            return json.loads(p.stdout)["items"]
+        try:
+            names = collections.defaultdict(set)
+            for pod in get("pods", "-A"):
+                name = f"pod {pod['metadata']['namespace']}/{pod['metadata']['name']}"
+                for ip in pod.get("status", {}).get("podIPs") or []:
+                    names[ip["ip"]].add(name + (" (host network)" if pod["spec"].get("hostNetwork") else ""))
+            for node in get("nodes"):
+                for a in node.get("status", {}).get("addresses") or []:
+                    if a["type"] in ("InternalIP", "ExternalIP"):
+                        names[a["address"]].add(f"node {node['metadata']['name']}")
+                # The gateway of its pod network (kindnet's: the CIDR's first address), which the node's own
+                # processes (the kubelet, host-network pods such as kube-apiserver) reach its pods from
+                for cidr in node["spec"].get("podCIDRs") or []:
+                    net = ipaddress.ip_network(cidr, strict=False)
+                    names[str(net.network_address + 1)].add(
+                        f"node {node['metadata']['name']} (pod network gateway: its host-network clients)")
+            for svc in get("services", "-A"):
+                for ip in svc["spec"].get("clusterIPs") or []:
+                    if ip != "None":
+                        names[ip].add(f"service {svc['metadata']['namespace']}/{svc['metadata']['name']}")
+            backends = collections.defaultdict(set)
+            for es in get("endpointslices", "-A"):
+                svc = (es["metadata"].get("labels") or {}).get("kubernetes.io/service-name")
+                if svc:
+                    for e in es.get("endpoints") or []:
+                        backends[f"{es['metadata']['namespace']}/{svc}"].update(e.get("addresses") or [])
+            with open(f"{out_dir}/{self.ADDRESSES}", "w") as f:
+                json.dump({"time": time.strftime("%Y-%m-%d %H:%M:%S %z"),
+                           "addresses": {ip: sorted(n) for ip, n in sorted(names.items())},
+                           "backends": {s: sorted(ips) for s, ips in sorted(backends.items())}}, f, indent=1)
+            say(f"addresses of {len(names)} IPs in {out_dir}/{self.ADDRESSES}")
+        except (RuntimeError, subprocess.TimeoutExpired, json.JSONDecodeError, KeyError, ValueError) as e:
+            say(f"warning: no {self.ADDRESSES}: {e}")
 
 
 class PrombenchVM:

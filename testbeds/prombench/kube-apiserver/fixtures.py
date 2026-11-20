@@ -22,6 +22,9 @@ import urllib.error
 import urllib.request
 import ssl
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../.."))
+import common  # noqa: E402  (paramtrack's: the workload's User-Agent)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOSTS = ["ccfg-issuer.example.com", "ccfg-discovery.example.com", "ccfg-authz.example.com", "ccfg-audit.example.com",
          "ccfg-otlp-collector.example.com"]
@@ -252,7 +255,8 @@ def workload(ctx, duration, log):
         while time.time() < end:
             for name, t in tokens.items():
                 req = urllib.request.Request(f"{cluster['server']}/api/v1/namespaces/default/pods?limit=1",
-                                             headers={"Authorization": f"Bearer {t}"})
+                                             headers={"Authorization": f"Bearer {t}",
+                                                      "User-Agent": common.testbed_agent("jwt-workload")})
                 try:
                     code = urllib.request.urlopen(req, context=tls, timeout=30).status
                 except urllib.error.HTTPError as e:

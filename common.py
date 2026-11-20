@@ -15,6 +15,16 @@ CONFIGKEYS = f"{QUERYGRAPH}/configkeys"
 STATS = f"{REPO}/stats"
 ARGMATCH_LABELS = f"{CT}/dump_ancestors/argmatch-labels"
 
+# The User-Agent prefix the testbed's workload tags its requests with, "paramtrack-testbed/<job>" (testbed_agent), so
+# that the messages' peers name what the workload was doing (stats/messages/unmatched_messages.py's Peers; the patched
+# net/http logs a server-side request's user_agent)
+TESTBED_AGENT = "paramtrack-testbed/"
+
+
+def testbed_agent(job):
+    """The User-Agent of the testbed workload's job: dashboard-viewer, config-reload or jwt-workload"""
+    return TESTBED_AGENT + job
+
 
 def source_version(path):
     """The git version of a source checkout: {"describe": its nearest tag and how far past it (git describe --tags
