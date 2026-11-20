@@ -1,0 +1,42 @@
+# prombench's peers that aren't instrumented, which the testbed's address snapshot can't name: names for the addresses
+# of the messages only one side logged. Format and use: stats/messages/unmatched_messages.py --external (a glob, tested
+# against each identity of a peer address: the address, it without its port, and what the snapshot or its service DNS
+# name says it is). The first line that matches names it, so specific lines come first. An address no line matches
+# gets a name derived from the snapshot (Peers.derived_name: a pod's workload or a service's name, without the
+# namespace, or a node); these lines are for what isn't in it, and for ports that say more than a node's IP.
+
+# kube-apiserver's own dependencies
+127.0.0.1:2379 => <etcd>
+*:10250 => <kubelet>
+# kube-apiserver's fixtures: servers its concrete configs point at (testbeds/prombench/kube-apiserver/fixtures.py)
+%2Fvar%2Frun%2Fparamtrack-kms%2Fkms.socket => <kms-plugin>
+# (the authentication config's JWT issuers' OIDC discovery documents, and their JWKS)
+ccfg-discovery.example.com* => <oidc-discovery>
+ccfg-authz.example.com* => <authz-webhook>
+ccfg-audit.example.com* => <audit-webhook>
+ccfg-otlp-collector.example.com* => <otlp-collector>
+
+# Hosts the concrete configs made up (nothing listens there)
+127.0.0.1:1 => <made-up config host>
+
+# Outside the cluster
+169.254.169.254 => <cloud metadata endpoint>
+# Internet hosts, named by their host name. Listed one by one, although the name is just the host: a host the
+# snapshot doesn't know isn't named automatically, so that a peer nothing here covers shows up as unexplained rather
+# than quietly as external. A new internet host needs a line here.
+api.pushover.net => <api.pushover.net>
+events.pagerduty.com => <events.pagerduty.com>
+grafana.com => <grafana.com>
+storage.googleapis.com => <storage.googleapis.com>
+
+# Node exporters, on their node's IP (host network)
+*:9100 => <node-exporter>
+
+# kind's Docker network gateway: the VM itself, i.e. the testbed's kubectl (exec, port-forward, patches, applies)
+172.18.0.1 => <the VM: the testbed's kubectl>
+
+# Loopback clients of a module's server, left unmatched: a module's own loopback requests pair (match_messages'
+# loopback_within), so these are port-forwarded traffic (the dashboard viewer) or commands run in the container
+# (the testbed's wget)
+127.0.0.1 => <loopback: port-forward, or a command in the container>
+::1 => <loopback: port-forward, or a command in the container>

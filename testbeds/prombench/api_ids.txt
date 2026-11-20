@@ -1,0 +1,38 @@
+# Messages between prombench's modules whose two sides log different api_ids (the library that logged each side):
+# a made-up api_id for both sides, so contexttrack's match_messages can pair them. Format and use:
+# stats/messages/unmatched_messages.py --api-ids.
+
+# Grafana's Prometheus datasource -> Prometheus (github.com/grafana -> github.com/prometheus)
+POST /prometheus-meta/api/v1/query => <prom_query>
+POST /prometheus-meta/api/v1/query_range => <prom_query>
+GET /prometheus-meta/api/v1/series => <prom_query>
+GET /prometheus-meta/api/v1/label/{name}/values => <prom_query>
+
+# The testbed's readiness checks, through kube-apiserver's service proxy -> each module (k8s.io -> the module's)
+GET /alertmanager/-/ready => <kube_ready>
+GET /prometheus-meta/-/ready => <kube_ready>
+GET /grafana/api/health => <kube_ready>
+
+# Prometheus' scrapes of the kubelets through kube-apiserver's node proxy (github.com/prometheus -> k8s.io)
+GET /api/v1/nodes/{name}/proxy/{path...} => <prom_scrape>
+
+# Prometheus' Kubernetes service discovery -> kube-apiserver (github.com/prometheus -> k8s.io)
+GET /api/v1/pods => <prom_k8s_sd>
+GET /api/v1/services => <prom_k8s_sd>
+GET /api/v1/namespaces/{namespace}/pods => <prom_k8s_sd>
+GET /api/v1/namespaces/{namespace}/services => <prom_k8s_sd>
+
+# Caddy's ingress controller -> kube-apiserver's health check (github.com/caddyserver -> k8s.io)
+GET /healthz => <caddy_healthz>
+
+# Caddy -> Grafana: the ingress proxies everything under /grafana/ to Grafana, and Caddy's proxy logs the forwarded
+# requests as github.com/caddyserver, while Grafana logs them as whichever of its libraries handles them
+# (github.com/grafana, k8s.io, or none for static files). These lines also give Caddy's own received requests under
+# /grafana/ this api_id; those don't pair with its forwarded ones, since match_messages pairs a module with itself only
+# over loopback or at its own pod IP (loopback_within).
+# The only proxied hop between two modules: Caddy's other upstreams in prombench (the benchmark Prometheus instances,
+# /16075/prometheus-pr and -release, and comment-monitor) aren't instrumented, so their messages have no other side
+# to pair with (they're named as external); its health checks and admin API calls go to Caddy itself, with
+# github.com/caddyserver on both sides. A module routed through Caddy in another testbed would need its own lines.
+GET /grafana/{rest...} => <caddy_grafana>
+POST /grafana/{rest...} => <caddy_grafana>
