@@ -104,7 +104,7 @@ def joined_calls(run):
     for ei, e in enumerate(events):
         if ei not in labels or e["kind"] not in chains.KINDS:
             continue
-        msg = (e["kind"], chains.reduce_label(labels[ei]))
+        msg = (e["kind"], chains.message_label(labels[ei]))
         ch = join.chain(e["stack"], e["ancestry"])
         for i, (kind, gid, _, names) in enumerate(ch):
             if kind != "frame":
@@ -154,7 +154,7 @@ def main():
     ap.add_argument("--out", help="write the report here (markdown) rather than to stdout")
     a = ap.parse_args()
 
-    ch = chains.message_chains(a.run)  # (kind, reduced label) => chains, for each sent message
+    ch = chains.message_chains(a.run)  # (kind, label) => chains, for each sent message
     msgs = sorted(ch)
     funcs, origins = {}, {}
     for k in msgs:
@@ -169,11 +169,11 @@ def main():
     wanted = set().union(*(msg_calls.get(k, set()) for k in msgs))
     cm, left_out = call_matches(a.run, wanted, kept, config_values)
 
-    # Check against step 6: the (kind, reduced label, needle) of the joined matches
+    # Check against step 6: the (kind, label, needle) of the joined matches
     step6 = set()
     for r in csv.DictReader(open(f"{layout.step_dir(a.run, '6-label-values')}/joined.csv", newline="")):
         if r["message_kind"] in chains.KINDS and r["needle"] in kept:
-            step6.add((r["message_kind"], chains.reduce_label(r["message_label"]), r["needle"]))
+            step6.add((r["message_kind"], chains.message_label(r["message_label"]), r["needle"]))
     here = {(k[0], k[1], n) for k in msgs for c in msg_calls.get(k, ()) for n, _ in cm.get(c, ())}
     step6 = {x for x in step6 if (x[0], x[1]) in set(msgs)}
     if here != step6:

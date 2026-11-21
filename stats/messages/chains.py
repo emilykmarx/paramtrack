@@ -3,9 +3,8 @@
 
 The messages are the run's sent messages: its 5-matches/events.jsonl events (by default; --step) of kind Request sent
 or Response sent,
-labelled as argmatch-labels' join.py labels them (as count_labels.py does), each label reduced to its path or route
-pattern (reduce_label: its api_id, method, paths and code fields dropped), so the labels that differ only in those
-fields are one message. A message's events are those whose label reduces to it.
+labelled as argmatch-labels' join.py labels them (as count_labels.py does): a message is a (kind, label without its
+paths field) (message_label), its events those with that label.
 
 An event's chain is its stack (the goroutine that sent it, innermost first), then the frames in its ancestry (the
 stacks that created that goroutine, and so on, up to main), as join.py parses them: the code path from the send to the
@@ -44,12 +43,40 @@ MODULE_FUNCTIONS = (MODULE,)  # (message_chains sets it to the run's module's CH
 KINDS = ("Request sent", "Response sent")  # the sent messages
 
 
+def label_fields(label):
+    """A message label's fields, e.g. `{api_id: k8s.io, method: GET, path: /api/v1/pods}` => {"api_id": "k8s.io",
+    "method": "GET", "path": "/api/v1/pods"}"""
+    return dict(f.split(": ", 1) for f in label.strip("{}").split(", "))
+
+
+def message_label(label):
+    """The label a message is keyed by: label without its paths field (the number of paths a route pattern matched),
+    e.g. `{api_id: github.com/caddyserver, pattern: /config/, method: GET, paths: 1}` => `{api_id:
+    github.com/caddyserver, pattern: /config/, method: GET}`"""
+    return "{" + ", ".join(f for f in label.strip("{}").split(", ") if not f.startswith("paths: ")) + "}"
+
+
 def reduce_label(label):
-    """A message label reduced to its path or route pattern: no braces, field names, api_id, method, paths or code
-    (e.g. `{api_id: k8s.io, method: GET, path: /api/v1/pods}` => `/api/v1/pods`). Received responses name their path
-    `req.URL.Path` (e.g. `{req.Method: GET, req.URL.Path: /version, resp.StatusCode: 200}` => `/version`)."""
-    fields = dict(f.split(": ", 1) for f in label.strip("{}").split(", "))
+    """A message label's path or route pattern (e.g. `{api_id: k8s.io, method: GET, path: /api/v1/pods}` =>
+    `/api/v1/pods`). Received responses name their path `req.URL.Path` (e.g. `{req.Method: GET, req.URL.Path:
+    /version, resp.StatusCode: 200}` => `/version`)."""
+    fields = label_fields(label)
     return fields.get("path") or fields.get("pattern") or fields.get("req.URL.Path")
+
+
+# show_label's field order: method, path or route pattern, status code (other fields after these)
+SHOW_ORDER = ("method", "req.Method", "path", "pattern", "req.URL.Path", "code", "resp.StatusCode")
+
+
+def show_label(label):
+    """A message label as the matrices show it: its field values without api_id or paths, in SHOW_ORDER, without field
+    names or a route pattern's `path=` (e.g. `{api_id: github.com/caddyserver, pattern: path=["/grafana","/grafana/*"],
+    method: GET, paths: 81}` => `GET ["/grafana","/grafana/*"]`)"""
+    fields = label_fields(label)
+    fields.pop("api_id", None)
+    fields.pop("paths", None)
+    names = [n for n in SHOW_ORDER if n in fields] + [n for n in fields if n not in SHOW_ORDER]
+    return " ".join(fields[n].removeprefix("path=") if n == "pattern" else fields[n] for n in names)
 
 
 def chain(ev):
@@ -114,13 +141,13 @@ def message_chains(run, step=STEP, kinds=KINDS):
     chains = collections.defaultdict(list)
     for i, label in join.message_labels(events).items():
         if events[i]["kind"] in kinds:
-            chains[(events[i]["kind"], reduce_label(label))].append(chain(events[i]))
+            chains[(events[i]["kind"], message_label(label))].append(chain(events[i]))
     return chains
 
 
 def message_context_ids(run, step=STEP, kinds=KINDS):
     """(kind, message) => the context IDs of its events in run's <step>/events.jsonl (contexttrack's context_id: the
-    request's context, e.g. id:10), for messages of the given kinds, labelled and reduced as message_chains does"""
+    request's context, e.g. id:10), for messages of the given kinds, labelled as message_chains does"""
     return {k: {cid for cid, _ in es} for k, es in message_exchanges(run, step, kinds).items()}
 
 
@@ -134,7 +161,7 @@ def message_exchanges(run, step=STEP, kinds=KINDS):
             cid = (events[i].get("context") or {}).get("context_id")
             if cid:
                 m = events[i].get("message") or {}
-                out[(events[i]["kind"], reduce_label(label))].add((cid, (m.get("req.Method"), m.get("req.URL.Path"))))
+                out[(events[i]["kind"], message_label(label))].add((cid, (m.get("req.Method"), m.get("req.URL.Path"))))
     return out
 
 

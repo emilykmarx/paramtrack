@@ -4,9 +4,9 @@ negatives): an HTML page (interactive) and a markdown summary. LEGEND below says
 
 Inputs, all from the run directory:
 - the messages: step 5's 5-matches/events.jsonl (chains.STEP), labelled as argmatch-labels' join.py labels them (as count_labels.py
-  does), sent messages only (Request sent, Response sent), each label reduced to its path or route pattern (its
-  api_id, method, paths and code fields dropped; chains.reduce_label) and the duplicates that leaves merged; with their
-  chains and chain groups (chains.py);
+  does), of each kind (Request sent, Response sent, Request received, Response received): a message is a (kind,
+  label without its paths field; chains.message_label), shown without its api_id or field names (chains.show_label); with their chains and chain groups
+  (chains.py);
 - the sections: step 8's 8-stats/full_keys.csv (every in-scope full key, with its section);
 - the concrete config's keys and values: step 4's configkeys.csv, and param_values.txt (the values searched for);
 - unambiguous keys: those whose values are all unambiguous (TERMINOLOGY.md; stats.unambiguous_key, as stats.py's
@@ -25,12 +25,14 @@ Labels are normalized and, on the HTML pages, collapsed:
   of anchored cells keep one row per message.
 
 Usage: uv run --with pandas --with tabulate python evidence_matrix.py --run <paramtrack out dir> --out <prefix>
-writes <prefix>.md, and a page per message kind: <prefix>-requests.html (Request sent) and <prefix>-responses.html
-(Response sent)
+writes, in a subdirectory param_influence/ next to <prefix> (out_path), <prefix>.md and a page per message kind (the
+columns' kind; PAGES), named after it: <prefix>-request-sent.html, <prefix>-response-sent.html,
+<prefix>-request-received.html and <prefix>-response-received.html
 
-With --received, instead the received-message matrices: received messages x sent messages, a page per received kind,
-<prefix>-received-requests.html (Request received) and <prefix>-received-responses.html (Response received). Rows: the
-received messages of that kind (from the same events, labelled and reduced the same way); columns: every sent message,
+With --received, instead the received-message matrices: received messages x sent messages, a page per received kind, in a subdirectory
+receive_influence/ instead, named after the received kind (the rows' kind; every page's columns are all the sent
+messages): <prefix>-request-received.html and <prefix>-response-received.html. Rows: the
+received messages of that kind (from the same events, labelled and shown the same way); columns: every sent message,
 requests then responses; a cell is colored if the two messages' events share a context ID (RECEIVED_LEGEND).
 """
 
@@ -54,6 +56,28 @@ import stats  # noqa: E402  (stats/stats.py: the concrete keys' values and full 
 
 SENT = ["Request sent", "Response sent"]
 RECEIVED = ["Request received", "Response received"]
+ANCHORED = ["Request sent"]  # the kinds whose messages can be anchored (LEGEND's Orange-outlined cell)
+# The evidence matrices' pages: message kind => what the page's columns are
+PAGES = {"Request sent": "requests", "Response sent": "responses", "Request received": "received requests",
+         "Response received": "received responses"}
+
+
+def out_path(prefix, subdir, name):
+    """An output's path: <prefix>'s directory/subdir/<prefix's base name><name>, creating subdir"""
+    d = os.path.join(os.path.dirname(prefix), subdir)
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, os.path.basename(prefix) + name)
+
+
+def kind_name(kind):
+    """A message kind as a file name part, e.g. Request sent => request-sent"""
+    return kind.lower().replace(" ", "-")
+
+
+# How the pages show a message label (chains.show_label)
+SHOWN = ("shown as its method, path or route pattern (a received request's; a received response's request's path) "
+         "and status code, without its api_id, number of paths or field names (see show_label in "
+         "stats/messages/chains.py)")
 
 # Both pages' legends (the sent-message and received-message matrices); the rules from join.py itself
 LABELS_NOTE = ("Labels", "Message labels are normalized: parts that differ between runs of the same testbed and config "
@@ -65,7 +89,7 @@ LABELS_NOTE = ("Labels", "Message labels are normalized: parts that differ betwe
 @functools.lru_cache
 def normalization_examples(run):
     """One example per NORMALIZE rule, from the run's messages (chains.STEP's events): the first label (sorted) the
-    rule itself changes (after the rules before it), as the matrix shows it (chains.reduce_label) before and after
+    rule itself changes (after the rules before it), as the matrix shows it (chains.show_label) before and after
     normalizing"""
     events = [json.loads(line) for line in open(f"{layout.step_dir(run, chains.STEP)}/events.jsonl") if line.strip()]
     raw = sorted(set(chains.join.message_labels(events, normalized=False).values()))
@@ -78,7 +102,7 @@ def normalization_examples(run):
         return label
     for i, (rx, sub) in enumerate(rules):
         label = next((label for label in raw if rx.sub(sub, before(label, i)) != before(label, i)), None)
-        out.append(f"{rx.pattern}: " + (f"{chains.reduce_label(label)} => {chains.reduce_label(chains.join.normalize(label))}"
+        out.append(f"{rx.pattern}: " + (f"{chains.show_label(label)} => {chains.show_label(chains.join.normalize(label))}"
                                         if label else "no label in this run"))
     return out
 
@@ -93,32 +117,38 @@ def legend(entries, run):
     return out
 
 
+# The parts of LEGEND's entries about anchors, left out of the pages without anchors (ANCHORED)
+ANCHOR_TEXT = (" A cell is outlined if any of them anchors it.",
+               " (and the keys of anchor values)")
+
 LEGEND = [
     LABELS_NOTE,
     ("Collapsed columns", "Messages of the same kind and chain group with identical evidence mappings (the same evidence "
                           "keys in every section) share a column, headed by the first one and the number merged; hover "
-                          "the header for all of them. A cell is outlined if any of them anchors it, and its tooltip "
-                          "names each anchor value's message. Messages whose mappings differ, and messages with no "
-                          "evidence, keep their own columns. See collapse_columns() in "
+                          "the header for all of them." + ANCHOR_TEXT[0] + " Messages whose mappings differ, and "
+                          "messages with no evidence, keep their own columns. See collapse_columns() in "
                           "stats/messages/evidence_matrix.py."),
-    ("Terms", "as defined in stats/TERMINOLOGY.md. UNAMBIGUOUS matches only: eligible keys, evidence "
-              "keys and the keys of anchor values count only if they're Unambiguous."),
+    ("Terms", "as defined in stats/TERMINOLOGY.md. UNAMBIGUOUS matches only: eligible keys and evidence keys"
+              + ANCHOR_TEXT[1] + " count only if they're Unambiguous."),
     ("Rows",
-        "Every in-scope section, grouped by top-level key. Horizontal line between top-level keys."),
+        "Every in-scope section, grouped by top-level key. Horizontal line between top-level keys. Hover for keys."),
     ("Columns",
-        "Observed sends: Path/pattern field of message label. Ordered by chain "  # noqa: ISC004
+        "Observed messages of the page's kind, one per message label, " + SHOWN + ". Ordered by chain "  # noqa: ISC004
         "group: messages whose chains have exactly the same set of module "
-        "functions. Vertical line between chain groups. (In this run, message labels were uniquely identified "
-        "by path/pattern, with one exception, affecting two paths (/api/v1/pods and /api/v1/services), due to a "
-        "labeling bug)"),
+        "functions. Vertical line between chain groups."),
     ("Cell color",
         "White = The section has eligible keys, but none is evidence for this message. "
         "Blue = The section has evidence for this message; "
         "shade of blue = share of the section's eligible keys that are evidence for this message. "  # noqa: ISC004
         "Gray = The section has no eligible key (so cannot provide evidence for any message.)"),
-    ("Orange-outlined cell", "The message label contains a config value, or vice versa. "  # noqa: ISC004
+    ("Orange-outlined cell", "Anchors: The message label's path or route pattern contains a config value, or vice versa, "
+        "or its method is a config value. "  # noqa: ISC004
         "E.g. a token_url value http://host/ccfg-...-token-url contains the label "
-        "/ccfg-...-token-url. (On hover, this is called an \"anchor\")"),
+        "/ccfg-...-token-url; a health check's method CCFG6631 is its health_checks.active.method. Hover for details. "
+        "Sent requests only: a received message comes from another module, which isn't "
+        "expected to contain this module's config values (its sender's own matrix checks it for the sender's "
+        "values); and a sent response's label fields (method, path or route pattern) are its request's, so a match "
+        "there means the received request matched a config value, not that the config influenced the response."),
 ]
 
 
@@ -197,24 +227,33 @@ def load(run):
     # ((kind, message), section) => evidence full key => its matched values
     via = collections.defaultdict(lambda: collections.defaultdict(set))
     for r in csv.DictReader(open(f"{layout.step_dir(run, '6-label-values')}/joined.csv", newline="")):
-        if r["message_kind"] not in SENT:
+        if r["message_kind"] not in PAGES:
             continue
-        msg = (r["message_kind"], chains.reduce_label(r["message_label"]))
+        msg = (r["message_kind"], chains.message_label(r["message_label"]))
         for fk in needle_fks.get(r["needle"], ()):
             if fk in unamb_keys:
                 evidence[msg][section_of[fk]].add(fk)
                 via[(msg, section_of[fk])][fk].add(r["needle"])
 
     # Messages, ordered by chain group
-    ch = chains.message_chains(run)  # (kind, reduced label) => chains, for every message of a sent kind
-    msgs = sorted(k for k in ch if k[0] in SENT)
-    order, group_of = by_chain_group(ch, msgs)
+    ch = chains.message_chains(run, kinds=tuple(PAGES))  # (kind, label) => chains, for every message
+    # (groups numbered over the sent messages, as the received-message matrices' columns are, and separately over
+    # the received ones)
+    order, group_of = [], {}
+    for kinds in (SENT, RECEIVED):
+        o, g = by_chain_group(ch, sorted(k for k in ch if k[0] in kinds))
+        order += o
+        group_of.update(g)
 
-    # Anchors: (kind, message) => section => the values that anchor it
+    # Anchors: (kind, message) => section => the values that anchor it; sent requests only (ANCHORED; LEGEND's
+    # Orange-outlined cell)
     anchors = collections.defaultdict(lambda: collections.defaultdict(set))
-    for k in msgs:
+    for k in (k for k in order if k[0] in ANCHORED):
+        p = chains.reduce_label(k[1])  # (its path or route pattern)
+        fields = chains.label_fields(k[1])
+        method = fields.get("method") or fields.get("req.Method")
         for v, secs in value_sections.items():
-            if v in k[1] or k[1] in v:
+            if v in p or p in v or v == method:
                 for s in secs:
                     anchors[k][s].add(v)
     return dict(sections=sections, section_keys=section_keys, eligible=eligible, evidence=evidence, via=via, msgs=order, group_of=group_of,
@@ -251,7 +290,7 @@ def cells(d):
                 conf = len(ev & el) / len(el)
                 kind = ("anchored, evidence" if conf else "anchored, no evidence (possible false negative)") \
                     if anchored else ("evidence" if conf else "no evidence")
-            rows.append({"kind_msg": k[0], "message": k[1], "group": d["group_of"][k], "section": s,
+            rows.append({"kind_msg": k[0], "message": k[1], "shown": chains.show_label(k[1]), "group": d["group_of"][k], "section": s,
                          "top": s.split(".")[0].split(" ")[0], "cell": kind, "confidence": conf,
                          "evidence_keys": len(ev & el), "eligible_keys": len(el),
                          "anchor_values": "; ".join(sorted(d["anchors"][k].get(s, ()))),
@@ -267,7 +306,9 @@ def write_md(df, d, run, path):
          f"# Evidence mappings: messages x sections ({run})", "", "## Legend", ""]
     L += [f"- **{name}:** {text}" for name, text in legend(LEGEND, run)] + [""]
     tested = df[df.eligible_keys > 0].section.nunique()
-    L += ["## Counts", "", f"- Messages (rows): {len(d['msgs'])}; in-scope sections (columns): "
+    per_kind = collections.Counter(k[0] for k in d["msgs"])
+    L += ["## Counts", "", f"- Messages (columns): {len(d['msgs'])} ("
+          + ", ".join(f"{kind} {per_kind[kind]}" for kind in PAGES) + f"); in-scope sections (rows): "
           f"{len(d['sections'])}, {tested} with eligible keys", ""]
     order = ["anchored, evidence", "anchored, no evidence (possible false negative)", "anchored, no eligible keys",
              "evidence", "no evidence", "no eligible keys"]
@@ -276,8 +317,8 @@ def write_md(df, d, run, path):
           ""]
     an = df[df.cell.str.startswith("anchored")].sort_values(["group", "message", "section"])
     L += ["## Anchored cells", "", f"{len(an)} cells, in {an.message.nunique()} messages:", "",
-          an[["message", "group", "section", "anchor_values", "cell", "confidence", "evidence"]]
-          .assign(evidence=lambda x: x.evidence.map("; ".join))
+          an[["kind_msg", "shown", "group", "section", "anchor_values", "cell", "confidence", "evidence"]]
+          .rename(columns={"shown": "message"}).assign(evidence=lambda x: x.evidence.map("; ".join))
           .assign(confidence=lambda x: x.confidence.map(lambda c: "-" if pd.isna(c) else f"{c:.2f}"))
           .to_markdown(index=False), ""]
     sec = df.groupby("section").agg(eligible=("eligible_keys", "first"), msgs=("evidence_keys", lambda s: (s > 0).sum()))
@@ -315,10 +356,10 @@ def collapse_columns(d, msgs):
 def write_html(df, d, run, path, kind):
     """The matrix as a table: each cell's color is its confidence (blue ramp, palette.md's sequential steps), gray if
     the section has no eligible keys, with an outline if anchored; a tooltip per cell. Light and dark modes. Only the
-    messages of the given kind (Request sent or Response sent)."""
+    messages of the given kind (PAGES)."""
     df = df[df.kind_msg == kind]
     msgs = [k for k in d["msgs"] if k[0] == kind]
-    what = "requests" if kind == "Request sent" else "responses"
+    what = PAGES[kind]
     ramp = RAMP
 
     def fill(c):
@@ -339,6 +380,11 @@ def write_html(df, d, run, path, kind):
            "</style></head><body><div class='viz-root'>",
            f"<h1>Evidence mappings: sections × {what} ({kind})</h1><div class='legend'>Run: {esc(run)}<br>"]
     for name, text in legend(LEGEND, run):
+        if kind not in ANCHORED:  # (no anchors on this page)
+            if name == "Orange-outlined cell":
+                continue
+            for t in ANCHOR_TEXT:
+                text = text.replace(t, "")
         sw = {"Orange-outlined cell": "<span class='swatch' style='outline:2px solid var(--outline)'></span>",
               "Cell color": "<span class='swatch' style='background:var(--zero)'></span>0 " + "".join(
                   f"<span class='swatch' style='background:{c}'></span>" for c in ramp[::3]) + " 1, "
@@ -350,11 +396,13 @@ def write_html(df, d, run, path, kind):
     # Columns: the messages (collapsed: collapse_columns), by chain group, with a line before each group's first column
     group_start = {i for i, c in enumerate(cols) if i and d["group_of"][c[0]] != d["group_of"][cols[i - 1][0]]}
 
+    show = chains.show_label
+
     def head(c):
         if len(c) == 1:
-            return c[0][1], f"{c[0][0]}: {c[0][1]} (chain group {d['group_of'][c[0]]})"
-        return (f"{c[0][1]} (+{len(c) - 1})", f"{c[0][0]}, {len(c)} messages with identical evidence mappings "
-                f"(chain group {d['group_of'][c[0]]}):\n" + "\n".join(k[1] for k in c))
+            return show(c[0][1]), f"{c[0][0]}: {show(c[0][1])} (chain group {d['group_of'][c[0]]})"
+        return (f"{show(c[0][1])} (+{len(c) - 1})", f"{c[0][0]}, {len(c)} messages with identical evidence mappings "
+                f"(chain group {d['group_of'][c[0]]}):\n" + "\n".join(show(k[1]) for k in c))
     out += [f"<th class='col{' g' if i in group_start else ''}' title='{esc(head(c)[1])}'><div>{esc(head(c)[0])}</div>"
             f"</th>" for i, c in enumerate(cols)]
     out.append("</tr></thead><tbody>")
@@ -377,9 +425,9 @@ def write_html(df, d, run, path, kind):
             r = next((x for x in rs if x.cell.startswith("anchored")), rs[0])
             cls = ("c a" if r.cell.startswith("anchored") else "c") + (" g" if i in group_start else "")
             conf = "-" if r.confidence is None or pd.isna(r.confidence) else f"{r.confidence:.2f}"
-            m = f"{c[0][0]}: {c[0][1]}" + (f" and {len(c) - 1} more with identical evidence mappings (header: all)"
+            m = f"{c[0][0]}: {show(c[0][1])}" + (f" and {len(c) - 1} more with identical evidence mappings (header: all)"
                                            if len(c) > 1 else "")
-            anchors = [json.dumps(v) + (f" ({k[1]})" if len(c) > 1 else "") for k in c
+            anchors = [json.dumps(v) + (f" ({show(k[1])})" if len(c) > 1 else "") for k in c
                        for v in sorted(d["anchors"][k].get(s, ()))]
             data = {"m": m, "s": s, "k": r.cell, "c": conf, "e": f"{r.evidence_keys}/{r.eligible_keys}",
                     "a": ", ".join(anchors), "v": sorted(set().union(*(x.evidence for x in rs)))}
@@ -387,13 +435,15 @@ def write_html(df, d, run, path, kind):
                        f"data-t='{esc(json.dumps(data))}'></td>")
         out.append("</tr>")
     out.append("</tbody></table></div>")
-    out.append("<details><summary>Table view: anchored cells</summary><table>"
-               "<tr><th>message</th><th>section</th><th>cell</th><th>confidence</th><th>anchor values</th></tr>")
-    for r in df[df.cell.str.startswith("anchored")].itertuples():
-        conf = "-" if r.confidence is None or pd.isna(r.confidence) else f"{r.confidence:.2f}"
-        out.append(f"<tr><td>{esc(r.message)}</td><td>{esc(r.section)}</td><td>{esc(r.cell)}</td><td>{conf}</td>"
-                   f"<td>{esc(r.anchor_values)}</td></tr>")
-    out.append("</table></details><div id='tip'></div></div><script>")
+    if kind in ANCHORED:  # (else no anchors on this page)
+        out.append("<details><summary>Table view: anchored cells</summary><table>"
+                   "<tr><th>message</th><th>section</th><th>cell</th><th>confidence</th><th>anchor values</th></tr>")
+        for r in df[df.cell.str.startswith("anchored")].itertuples():
+            conf = "-" if r.confidence is None or pd.isna(r.confidence) else f"{r.confidence:.2f}"
+            out.append(f"<tr><td>{esc(r.shown)}</td><td>{esc(r.section)}</td><td>{esc(r.cell)}</td><td>{conf}</td>"
+                       f"<td>{esc(r.anchor_values)}</td></tr>")
+        out.append("</table></details>")
+    out.append("<div id='tip'></div></div><script>")
     out.append("""const tip=document.getElementById('tip');
 function show(e,td){const d=JSON.parse(td.dataset.t);tip.replaceChildren();
 const add=(cls,text)=>{const p=document.createElement('div');if(cls)p.className=cls;p.textContent=text;tip.append(p)};
@@ -414,11 +464,10 @@ td.addEventListener('blur',()=>tip.style.display='none')});""")
 # The received-message matrices (--received): received messages x sent messages, linked by context ID
 RECEIVED_LEGEND = [
     LABELS_NOTE,
-    ("Rows", "Observed receives of this page's kind: path/pattern field of the message label (route pattern for a "
-             "received request, the request's path for a received response). Ordered by chain group: messages "
+    ("Rows", "Observed receives of this page's kind, one per message label, " + SHOWN + ". Ordered by chain group: messages "
              "whose chains have exactly the same set of module functions. Horizontal line between chain groups."),
-    ("Columns", "Observed sends, requests then responses (a heavier line between the two): path/pattern field of the "
-                "message label, ordered by chain group, numbered as in the evidence matrix. Vertical line between "
+    ("Columns", "Observed sends, requests then responses (a heavier line between the two), one per message label, "
+                "shown as the rows are, ordered by chain group, numbered as in the evidence matrix. Vertical line between "
                 "chain groups."),
     ("Cell color", "Blue = some event of the received message and some event of the sent message have the same "
                    "context ID (contexttrack's context_id: the request's context); shade of blue = share of the "
@@ -524,13 +573,14 @@ def write_received_html(d, run, path, kind):
     out.append("<div class='wrap'><table><thead><tr><th class='row'></th>")
     out += [f"<th class='kind' colspan='{n[k]}'>{esc(k)}</th>" for k in SENT if n[k]]
     out.append("</tr><tr><th class='row'></th>")
-    out += [f"<th class='col' title='{esc(c[0])}: {esc(c[1])} (chain group {col_group[c]}; {d['events'][c]} events)'>"
-            f"<div><span>{esc(c[1])}</span></div></th>" for c in cols]
+    show = chains.show_label
+    out += [f"<th class='col' title='{esc(c[0])}: {esc(show(c[1]))} (chain group {col_group[c]}; {d['events'][c]} "
+            f"events)'><div><span>{esc(show(c[1]))}</span></div></th>" for c in cols]
     out.append("</tr></thead><tbody>")
     for i, r in enumerate(rows):
         sep = " class='sep'" if i and row_group[r] != row_group[rows[i - 1]] else ""
-        out.append(f"<tr{sep}><th class='row' title='{esc(r[0])}: {esc(r[1])} (chain group {row_group[r]}; "
-                   f"{d['events'][r]} events)'><span>{esc(r[1])}</span></th>")
+        out.append(f"<tr{sep}><th class='row' title='{esc(r[0])}: {esc(show(r[1]))} (chain group {row_group[r]}; "
+                   f"{d['events'][r]} events)'><span>{esc(show(r[1]))}</span></th>")
         for j, c in enumerate(cols):
             cls = "c" + (" k" if c in kind_start and j else " g" if c in group_start and j else "")
             shared, own = shared_ids(d, r, c)
@@ -542,7 +592,7 @@ def write_received_html(d, run, path, kind):
             filled["chan undirected"] += bool(shared_chan_types(d, r, c, directed=False))
             if types:
                 cls += " ch" + ("" if shared else " cho")
-            data = {"r": f"{r[0]}: {r[1]}", "c": f"{c[0]}: {c[1]}", "n": len(shared), "nr": len(d["ids"][r]),
+            data = {"r": f"{r[0]}: {show(r[1])}", "c": f"{c[0]}: {show(c[1])}", "n": len(shared), "nr": len(d["ids"][r]),
                     "nc": len(d["ids"][c]), "o": own, "x": sorted(shared, key=lambda i: int(i.split(":")[-1])
                                                         if i.split(":")[-1].isdigit() else 0)[:5],
                     "t": [f"{t}: " + " / ".join(", ".join(sorted(f"{chains.short(f)} ({dr})" for f, dr in d["chan_types"][m][t]))
@@ -574,29 +624,32 @@ td.addEventListener('blur',()=>tip.style.display='none')});""")
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", required=True, help="a paramtrack run: a root's directory, <out>/<module>/<root> (paramtrack's layout.py; a run from before 2026-11-15: its --out) (steps 1-8)")
-    ap.add_argument("--out", required=True, help="output prefix: writes <prefix>.md, <prefix>-requests.html and "
-                                                 "<prefix>-responses.html")
+    ap.add_argument("--out", required=True, help="output prefix: writes <prefix>.md and a page per message kind, "
+                                                 "in a subdirectory next to it (see Usage above)")
     ap.add_argument("--chans", help="with --received: argmatch's chans output to associate messages by channel "
                                      "types with (default: the run's step 5 matches.chans.csv, if any)")
     ap.add_argument("--received", action="store_true",
                     help="instead, the received-message matrices (received messages x sent messages, cells not "
-                         "filled in yet): <prefix>-received-requests.html and <prefix>-received-responses.html")
+                         "filled in yet), in receive_influence/ (see Usage above)")
     a = ap.parse_args()
     if a.received:
         d = load_received(a.run, a.chans)
-        for kind, what in (("Request received", "requests"), ("Response received", "responses")):
-            filled = write_received_html(d, a.run, f"{a.out}-received-{what}.html", kind)
-            print(f"wrote {a.out}-received-{what}.html: {len(d['rows'][kind][0])} rows x {len(d['cols'])} columns; "
+        for kind in RECEIVED:
+            path = out_path(a.out, "receive_influence", f"-{kind_name(kind)}.html")
+            filled = write_received_html(d, a.run, path, kind)
+            print(f"wrote {path}: {len(d['rows'][kind][0])} rows x {len(d['cols'])} columns; "
                   f"cells with a shared context ID {filled['context']}, a shared channel type {filled['chan']} "
                   f"({filled['chan only']} of them without a shared context ID; {filled['chan undirected']} ignoring "
                   f"channel direction)")
         return
     d = load(a.run)
     df = cells(d)
-    write_md(df, d, a.run, f"{a.out}.md")
-    for kind, what in (("Request sent", "requests"), ("Response sent", "responses")):
-        write_html(df, d, a.run, f"{a.out}-{what}.html", kind)
-    print(f"wrote {a.out}.md, {a.out}-requests.html and {a.out}-responses.html")
+    paths = [out_path(a.out, "param_influence", ".md")]
+    write_md(df, d, a.run, paths[0])
+    for kind in PAGES:
+        paths.append(out_path(a.out, "param_influence", f"-{kind_name(kind)}.html"))
+        write_html(df, d, a.run, paths[-1], kind)
+    print("wrote " + ", ".join(paths))
     print(df.cell.value_counts().to_string())
 
 
