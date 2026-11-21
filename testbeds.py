@@ -39,18 +39,23 @@ OUTPUTS = ("events.jsonl", "matches.csv", "matches.calls.csv", "matches.chans.cs
 
 # argmatch build args for both runs, as in argmatch-labels/bootstrap-example/bootstrap.sh: search all of each
 # receiver (no libraries or types ignored, no time or memory caps), and spread each function's 30 checks out. A
-# module's module.py can override some (its ARGMATCH_ARGS: argmatch_args). OUT is each module's (Component.build).
+# module's module.py can override some (its ARGMATCH_ARGS), and its CARRIERS set PARAMFUNCS and CARRIERS
+# (argmatch_args). OUT is each module's (Component.build).
 ARGMATCH_ARGS = {
     "MATCH": "", "MATCHFILE": "", "FUNC": "", "STACKLOG": "", "RECVONLY": "1", "DEPTH": "10", "MAXELEMS": "64",
     "MAXCALLS": "30", "IGNORELIBS": "false", "IGNORETYPES": "", "MAXMEM": "0", "MAXTIME": "0",
-    "OUT": "/argmatch-out/matches.csv", "STATS": "true",
+    "OUT": "/argmatch-out/matches.csv", "STATS": "true", "PARAMFUNCS": "", "CARRIERS": "", "CARRIERDEPTH": "1",
 }
 
 
-
 def argmatch_args(mod):
-    """A module's argmatch build args: ARGMATCH_ARGS, with its module.py's ARGMATCH_ARGS over them"""
-    return {**ARGMATCH_ARGS, **getattr(mod, "ARGMATCH_ARGS", {})}
+    """A module's argmatch build args: ARGMATCH_ARGS, with its module.py's ARGMATCH_ARGS over them, and its CARRIERS'
+    functions and specs as PARAMFUNCS and CARRIERS"""
+    a = {**ARGMATCH_ARGS, **getattr(mod, "ARGMATCH_ARGS", {})}
+    c = getattr(mod, "CARRIERS", None)
+    if c:
+        a["PARAMFUNCS"], a["CARRIERS"] = ",".join(c["functions"]), ",".join(c["specs"])
+    return a
 
 
 EXPERIMENT = f"{CT}/dump_ancestors/argmatch/experiment"
@@ -129,8 +134,8 @@ class Component:
             overrides = {"STACKLOG": self.in_build_context(self.stacklog, "paramtrack-stacklog.txt"),
                          "MATCHFILE": self.in_build_context(self.matchfile, "paramtrack-matches.txt")}
         else:
-            # argmatch needs -func or -stacklog: name a function that doesn't exist
-            overrides = {"FUNC": "main.paramtrackNone", "MATCH": "paramtrack-none"}
+            # argmatch needs -func or -stacklog: name a function that doesn't exist (and instrument no carrier's)
+            overrides = {"FUNC": "main.paramtrackNone", "MATCH": "paramtrack-none", "PARAMFUNCS": "", "CARRIERS": ""}
         a = {**self.argmatch_args, "OUT": f"{self.pod_out}/matches.csv", **overrides}
         cmd = ["docker", "build", "--progress=plain", "-f", self.DOCKERFILE, "--build-arg",
                f"BUILDER={upstream.BUILDER_TAG}"]  # (every Dockerfile builds FROM it)

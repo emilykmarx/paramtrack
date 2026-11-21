@@ -1,0 +1,116 @@
+# Maximal message paths that use a carrier edge (../../results/runs/2026-11-19-check-all5-carriers2)
+
+Generated with stats/messages/message_paths.py's graph (carrier edges: carriers.py), --api-ids testbeds/prombench/api_ids.txt --external testbeds/prombench/external.txt. Each path is a maximal path, as message_paths.py finds them, with at least one carrier edge; under each carrier edge ("--carrier-->"), the alert keys its two ends share, by alertname. Without the carrier edges there are none of these paths: the 19 of length 2 are new paths (each received POST /api/v2/alerts -> one notification), and the 2 of length 3 continue to the notification's response.
+
+## Length 2: 19 paths
+
+2.1
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  2 shared alert keys (benchmarkPrometheusAlwaysFiring x2)
+    alertmanager-><api.pushover.net> req POST /1/messages.json (host api.pushover.net)
+
+2.2
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  8 shared alert keys (benchmarkPrometheusAlwaysFiring x8)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-discord-configs-webhook-url-6 (host 127.0.0.1:1)
+
+2.3
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-discord-configs-webhook-url-7 (host 127.0.0.1:1)
+
+2.4
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-msteams-configs-http-config-oauth2-token-url-4 (host 127.0.0.1:1)
+
+2.5
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  2 shared alert keys (benchmarkPrometheusAlwaysFiring x2)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-msteams-configs-http-config-oauth2-token-url-5 (host 127.0.0.1:1)
+
+2.6
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-opsgenie-configs-api-url-2/v2/alerts (host 127.0.0.1:1)
+
+2.7
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-opsgenie-configs-api-url-3/v2/alerts (host 127.0.0.1:1)
+
+2.8
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-opsgenie-configs-api-url-6/v2/alerts (host 127.0.0.1:1)
+
+2.9
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-opsgenie-configs-api-url-7/v2/alerts (host 127.0.0.1:1)
+
+2.10
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-opsgenie-configs-api-url/v2/alerts (host 127.0.0.1:1)
+
+2.11
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-opsgenie-configs-http-config-oauth2-token-url-4 (host 127.0.0.1:1)
+
+2.12
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-opsgenie-configs-http-config-oauth2-token-url-5 (host 127.0.0.1:1)
+
+2.13
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-pagerduty-configs-http-config-oauth2-token-url-4 (host 127.0.0.1:1)
+
+2.14
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-sns-configs-api-url-1/ (host 127.0.0.1:1)
+
+2.15
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-sns-configs-api-url-6/ (host 127.0.0.1:1)
+
+2.16
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-sns-configs-api-url/ (host 127.0.0.1:1)
+
+2.17
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-sns-configs-http-config-oauth2-token-url-4 (host 127.0.0.1:1)
+
+2.18
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  2 shared alert keys (benchmarkPrometheusAlwaysFiring x2)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-victorops-configs-api-url-1/ccfg-receivers-victorops-configs-api-key-1/ccfg-receivers-victorops-configs-routing-key-1 (host 127.0.0.1:1)
+
+2.19
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  2 shared alert keys (benchmarkPrometheusAlwaysFiring x2)
+    alertmanager-><made-up config host> req POST /ccfg-receivers-victorops-configs-api-url-3/ccfg-receivers-victorops-configs-api-key-3/ccfg-receivers-victorops-configs-routing-key-3 (host 127.0.0.1:1)
+
+## Length 3: 2 paths
+
+3.1
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager;grafana-><cloud metadata endpoint> req GET /latest/meta-data/iam/security-credentials/ (host 169.254.169.254)
+    --exchange-->
+    <cloud metadata endpoint>->alertmanager;grafana resp GET /latest/meta-data/iam/security-credentials/ 404 (host 169.254.169.254)
+
+3.2
+    prometheus->alertmanager req POST /alertmanager/api/v2/alerts (host 10.244.0.19:9093)
+    --carrier-->  4 shared alert keys (benchmarkPrometheusAlwaysFiring x4)
+    alertmanager;grafana-><cloud metadata endpoint> req PUT /latest/api/token (host 169.254.169.254)
+    --exchange-->
+    <cloud metadata endpoint>->alertmanager;grafana resp PUT /latest/api/token 405 (host 169.254.169.254)

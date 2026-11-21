@@ -6,13 +6,16 @@ type and the received type it pairs with; a type only one side logged has its ot
 unmatched_messages.py), annotated with sender -> receiver. So a proxied message is two nodes: as the proxy received it,
 and as the proxy sent it. External endpoints aren't nodes: they appear only as a message's sender or receiver.
 
-Edges, X -> Y:
-- within a module M, X received by M and Y sent by M: the received-message matrices' cell rule (evidence_matrix.py's
-  shared_ids: some event of X and some event of Y in M share a context ID, but not only as one exchange's request and
-  response), applied to the nodes' events rather than to the matrices' labels;
-- a request and its own response (which the matrices leave out): X a request M received and Y M's response to it
-  (match_messages' response types name their request's type); or, when the responder is external, X a request M sent
-  and Y the response M received to it.
+Edges, X -> Y, each of one or more kinds (the edge's "kinds" attribute):
+- "context": within a module M, X received by M and Y sent by M: the received-message matrices' cell rule
+  (evidence_matrix.py's shared_ids: some event of X and some event of Y in M share a context ID, but not only as one
+  exchange's request and response), applied to the nodes' events rather than to the matrices' labels;
+- "carrier": within a module M, X received by M and Y sent by M, some event of X and some event of Y sharing a
+  carrier key (carriers.py; only modules whose module.py has CARRIERS); "carrier_keys" and "carrier_modules" keep
+  which keys and modules;
+- "exchange": a request and its own response (which the matrices leave out): X a request M received and Y M's
+  response to it (match_messages' response types name their request's type); or, when the responder is external, X a
+  request M sent and Y the response M received to it.
 
 Prints every maximal path (from a node with no predecessor, or any node of a cycle nothing enters, until it can't go on
 without repeating a node) of at least --min-length nodes, longest first, a line each: <length>: <node> => <node> => ...;
@@ -33,6 +36,7 @@ import networkx as nx
 
 import unmatched_messages as um  # (next to this file: the matching)
 import evidence_matrix  # (next to this file: the received matrices' cell rule)
+import carriers  # (next to this file: carrier keys of events)
 
 SIDE_KIND = {"snd_req": "Request sent", "rcv_req": "Request received",
              "snd_resp": "Response sent", "rcv_resp": "Response received"}
@@ -45,8 +49,10 @@ def build(run, api_ids=None, external=()):
     "rows", unmatched_messages.py's type rows; "unmatched", (row, its peer's name or None if unexplained) for each
     unmatched row; "events", (module, side, type) => [number of events, first ts, last ts] (ts: Unix ns), each
     type as the module logged it (match_messages' sides: snd_req, rcv_req, snd_resp, rcv_resp); "nodes_of",
-    (side, type) => the nodes it is a side of"""
-    events = []  # (module, side, type, context ID, (method, path), ts)
+    (side, type) => the nodes it is a side of; "carrier_calls", module => its carriers.Calls; "carrier_attributions",
+    module => [(event kind, node label, call, how)] for carriers.py's report"""
+    events = []  # (module, side, type, context ID, (method, path), ts, carrier keys)
+    calls, attributed = {}, collections.defaultdict(list)  # module => carriers.Calls; => [(side, type, call, how)]
 
     peers = um.Peers(run, external)
 
@@ -54,7 +60,15 @@ def build(run, api_ids=None, external=()):
         peers.record_server(module, side, typ, ev)
         cid = (ev.get("context") or {}).get("context_id")
         m = ev.get("message") or {}
-        events.append((module, side, typ, cid, (m.get("req.Method"), m.get("req.URL.Path")), ev.get("ts")))
+        if module not in calls:
+            calls[module] = carriers.module_calls(run, module)
+        keys = set()
+        if calls[module]:
+            for c, how in calls[module].attributed(ev, received=side.startswith("rcv")):
+                keys |= c["keys"]
+                attributed[module].append((side, typ, c, how))
+        events.append((module, side, typ, cid, (m.get("req.Method"), m.get("req.URL.Path")), ev.get("ts"),
+                       frozenset(keys)))
 
     sides = {}
     rows = um.match(run, api_ids, on_message, sides)
@@ -82,7 +96,7 @@ def build(run, api_ids=None, external=()):
     g.add_nodes_from(n for ns in nodes_of.values() for n in ns)
     # Each type's events per module: how many, and when the first and last were logged
     stats = {}
-    for module, side, typ, _, _, ts in events:
+    for module, side, typ, _, _, ts, _ in events:
         c = stats.setdefault((module, side, typ), [0, ts, ts])
         c[0] += 1
         if ts is not None:
@@ -93,7 +107,7 @@ def build(run, api_ids=None, external=()):
     # Within each module: the received matrices' cells, over (event kind, node) keys
     d = {"ids": collections.defaultdict(set), "exchanges": collections.defaultdict(set)}
     by_cid = collections.defaultdict(lambda: collections.defaultdict(set))  # module => cid => keys
-    for module, side, typ, cid, ex, _ in events:
+    for module, side, typ, cid, ex, _, _ in events:
         if not cid:
             continue
         for n in nodes_of[(side, typ)]:
@@ -106,7 +120,26 @@ def build(run, api_ids=None, external=()):
                  for b in keys if "sent" in b[0]}
         for r, c in pairs:
             if evidence_matrix.shared_ids(d, r, c)[0]:
-                g.add_edge(r[1], c[1])
+                add_edge(g, r[1], c[1], "context")
+
+    # Within each module: received and sent nodes whose events share a carrier key
+    keys = collections.defaultdict(lambda: collections.defaultdict(set))  # module => (received?, node) => keys
+    for module, side, typ, _, _, _, ks in events:
+        if ks:
+            for n in nodes_of[(side, typ)]:
+                keys[module][(side.startswith("rcv"), n)] |= ks
+    for module, ks in keys.items():
+        for (rcv, r), rk in ks.items():
+            for (snd, s), sk in ks.items():
+                if rcv and not snd and r != s and rk & sk:
+                    add_edge(g, r, s, "carrier")
+                    e = g.edges[r, s]
+                    e.setdefault("carrier_keys", set()).update(rk & sk)
+                    e.setdefault("carrier_modules", set()).add(module)
+    g.graph["carrier_calls"] = calls
+    g.graph["carrier_attributions"] = {
+        module: [(SIDE_KIND[side], label(n), c, how) for side, typ, c, how in att for n in nodes_of[(side, typ)]]
+        for module, att in attributed.items()}
 
     # A request and its own response
     reqs = [n for n in g if n.message == "request"]
@@ -114,12 +147,19 @@ def build(run, api_ids=None, external=()):
         if n.stype:  # (the responder logged it: its request as received)
             for q in reqs:
                 if q.rtype == n.stype[2] and (q.snd, q.rcv) == (n.rcv, n.snd):
-                    g.add_edge(q, n)
+                    add_edge(g, q, n, "exchange")
         else:  # (an external responder: its request as sent)
             for q in reqs:
                 if q.stype == n.rtype[2] and (q.snd, q.rcv) == (n.rcv, n.snd):
-                    g.add_edge(q, n)
+                    add_edge(g, q, n, "exchange")
     return g
+
+
+def add_edge(g, a, b, kind):
+    """Adds edge a -> b to g, or adds kind to its kinds"""
+    if not g.has_edge(a, b):
+        g.add_edge(a, b, kinds=set())
+    g.edges[a, b]["kinds"].add(kind)
 
 
 def label(n):

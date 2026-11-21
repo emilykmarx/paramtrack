@@ -55,6 +55,11 @@
 
 # Messages
 - `ARGMATCH_ARGS` (optional): Build args for argmatch.
+- `CARRIERS` (optional): the module's carriers (dump_ancestors/argmatch/README.md, "Carriers"), {"specs": argmatch
+  `-carriers` specs (`<type>:<field path>`), "functions": the functions handed them, checked with their parameters
+  (argmatch `-paramfuncs`)}: the received request's handler hands them on (e.g. Alertmanager's alert store's Put), and
+  so do the functions that send them on, on the sent messages' stacks (its notifiers' Notify). In step 5's build only
+  (testbeds.argmatch_args); stats/messages/carriers.py says how they link received messages to sent ones.
 - `CHAIN_FUNCTIONS` (optional, default (GO_MODULE + "/",)): prefixes of the function names that count as the module's
   own on message chains (stats/messages/chains.py: chain groups, similarity, origins), e.g. Caddy's, whose
   code runs the controller's binary but isn't under its Go module

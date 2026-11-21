@@ -1,0 +1,129 @@
+# Sampled paths (stats/messages/sample_paths.py --run ../../results/runs/2026-11-19-check-all5-carriers2): up to 3 per length, each with a route no earlier sample has where possible, and the most messages no earlier sample has
+
+## Length 10
+
+10.1 route: <a node: kubelet, or a pod on its host network> + <testbed: jwt-workload> + <the VM: the testbed's kubectl>->kube-apiserver | kube-apiserver-><authz-webhook> | <authz-webhook>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><a node: kubelet, or a pod on its host network>
+    (10 of 10 messages not in an earlier sample)
+    <a node: kubelet, or a pod on its host network> + <testbed: jwt-workload> + <the VM: the testbed's kubectl>->kube-apiserver req GET /api/v1/namespaces/{namespace}/pods
+    kube-apiserver-><authz-webhook> req POST /authorize (host ccfg-authz.example.com:8443)
+    <authz-webhook>->kube-apiserver resp POST /authorize 200 (host ccfg-authz.example.com:8443)
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Range (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Range 200 (host 127.0.0.1:2379)
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Txn (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Txn 200 (host 127.0.0.1:2379)
+    kube-apiserver-><etcd> req POST /etcdserverpb.Lease/LeaseGrant (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.Lease/LeaseGrant 200 (host 127.0.0.1:2379)
+    kube-apiserver-><a node: kubelet, or a pod on its host network> resp PATCH /api/v1/namespaces/{namespace}/events/{name} 200
+
+10.2 route: <a node: kubelet, or a pod on its host network>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><kubelet> | <kubelet>->kube-apiserver | kube-apiserver-><the VM: the testbed's kubectl>
+    (4 of 10 messages not in an earlier sample)
+    <a node: kubelet, or a pod on its host network>->kube-apiserver req DELETE /api/v1/namespaces/{namespace}/pods/{name}
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Txn (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Txn 200 (host 127.0.0.1:2379)
+    kube-apiserver-><etcd> req POST /etcdserverpb.Lease/LeaseGrant (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.Lease/LeaseGrant 200 (host 127.0.0.1:2379)
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Range (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Range 200 (host 127.0.0.1:2379)
+    kube-apiserver-><kubelet> req POST /exec/caddy-system/caddy-caddy-ingress-controller-5c8d76ccc8-kkgb9/caddy-ingress-controller (host 172.18.0.4:10250)
+    <kubelet>->kube-apiserver resp POST /exec/caddy-system/caddy-caddy-ingress-controller-5c8d76ccc8-kkgb9/caddy-ingress-controller 101 (host 172.18.0.4:10250)
+    kube-apiserver-><the VM: the testbed's kubectl> resp GET /api/v1/namespaces/{namespace}/pods/{name}/exec 101
+
+10.3 route: <a node: kubelet, or a pod on its host network>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver->alertmanager | alertmanager->kube-apiserver | kube-apiserver-><the VM: the testbed's kubectl>
+    (4 of 10 messages not in an earlier sample)
+    <a node: kubelet, or a pod on its host network>->kube-apiserver req PATCH /api/v1/namespaces/{namespace}/events/{name}
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Txn (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Txn 200 (host 127.0.0.1:2379)
+    kube-apiserver-><etcd> req POST /etcdserverpb.Lease/LeaseGrant (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.Lease/LeaseGrant 200 (host 127.0.0.1:2379)
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Range (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Range 200 (host 127.0.0.1:2379)
+    kube-apiserver->alertmanager req GET /alertmanager/-/ready (host 10.244.0.19:9093)
+    alertmanager->kube-apiserver resp GET /alertmanager/-/ready 200 (host 10.244.0.19:9093)
+    kube-apiserver-><the VM: the testbed's kubectl> resp GET /api/v1/namespaces/{namespace}/services/{name}/proxy/{path:*} 200
+
+## Length 8
+
+8.1 route: <the VM: the testbed's kubectl>->kube-apiserver | kube-apiserver-><kubelet> | <kubelet>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver->prometheus | prometheus->kube-apiserver | kube-apiserver-><the VM: the testbed's kubectl>
+    (6 of 8 messages not in an earlier sample)
+    <the VM: the testbed's kubectl>->kube-apiserver req GET /api/v1/namespaces/{namespace}/pods/{name}/exec
+    kube-apiserver-><kubelet> req POST /exec/default/alertmanager-8487967cc7-xpqvr/alertmanager (host 172.18.0.4:10250)
+    <kubelet>->kube-apiserver resp POST /exec/default/alertmanager-8487967cc7-xpqvr/alertmanager 101 (host 172.18.0.4:10250)
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Range (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Range 200 (host 127.0.0.1:2379)
+    kube-apiserver->prometheus req GET /prometheus-meta/-/ready (host 10.244.0.17:9090)
+    prometheus->kube-apiserver resp GET /prometheus-meta/-/ready 503 (host 10.244.0.17:9090)
+    kube-apiserver-><the VM: the testbed's kubectl> resp GET /api/v1/namespaces/{namespace}/services/{name}/proxy/{path:*} 503
+
+8.2 route: <the VM: the testbed's kubectl>->kube-apiserver | kube-apiserver->grafana | grafana->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><kubelet> | <kubelet>->kube-apiserver | kube-apiserver-><the VM: the testbed's kubectl>
+    (5 of 8 messages not in an earlier sample)
+    <the VM: the testbed's kubectl>->kube-apiserver req GET /api/v1/namespaces/{namespace}/services/{name}/proxy/{path:*}
+    kube-apiserver->grafana req GET /grafana/api/health (host 10.244.0.20:3000)
+    grafana->kube-apiserver resp GET /grafana/api/health 200 (host 10.244.0.20:3000)
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Range (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Range 200 (host 127.0.0.1:2379)
+    kube-apiserver-><kubelet> req POST /exec/default/grafana-core-5fd4b9b79f-qhl2s/grafana-core (host 172.18.0.4:10250)
+    <kubelet>->kube-apiserver resp POST /exec/default/grafana-core-5fd4b9b79f-qhl2s/grafana-core 101 (host 172.18.0.4:10250)
+    kube-apiserver-><the VM: the testbed's kubectl> resp GET /api/v1/namespaces/{namespace}/pods/{name}/exec 101
+
+8.3 route: <a node: kubelet, or a pod on its host network>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><kubelet> | <kubelet>->kube-apiserver | kube-apiserver-><the VM: the testbed's kubectl>
+    (3 of 8 messages not in an earlier sample)
+    <a node: kubelet, or a pod on its host network>->kube-apiserver req PATCH /api/v1/namespaces/{namespace}/pods/{name}/status
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Txn (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Txn 200 (host 127.0.0.1:2379)
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Range (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Range 200 (host 127.0.0.1:2379)
+    kube-apiserver-><kubelet> req POST /exec/default/prometheus-meta-6498c857d5-46qq9/prometheus (host 172.18.0.4:10250)
+    <kubelet>->kube-apiserver resp POST /exec/default/prometheus-meta-6498c857d5-46qq9/prometheus 101 (host 172.18.0.4:10250)
+    kube-apiserver-><the VM: the testbed's kubectl> resp GET /api/v1/namespaces/{namespace}/pods/{name}/exec 101
+
+## Length 6
+
+6.1 route: <loopback: port-forward, or a command in the container> + <testbed: dashboard-viewer>->caddy | caddy->grafana | grafana->prometheus | prometheus->grafana | grafana->caddy | caddy-><loopback: port-forward, or a command in the container> + <testbed: dashboard-viewer>
+    (6 of 6 messages not in an earlier sample)
+    <loopback: port-forward, or a command in the container> + <testbed: dashboard-viewer>->caddy req GET path=["/grafana","/grafana/*"]
+    caddy->grafana req GET /grafana/api/datasources/uid/:uid/resources/* (host grafana.default.svc.cluster.local:80)
+    grafana->prometheus req GET /prometheus-meta/api/v1/label/:name/values (host prometheus-meta)
+    prometheus->grafana resp GET /prometheus-meta/api/v1/label/namespace/values 200 (host prometheus-meta)
+    grafana->caddy resp GET /grafana/api/datasources/uid/P86B77AEF8F12A5FA/resources/api/v1/label/namespace/values 200 (host grafana.default.svc.cluster.local:80)
+    caddy-><loopback: port-forward, or a command in the container> + <testbed: dashboard-viewer> resp GET path=["/grafana","/grafana/*"] 200
+
+6.2 route: <testbed: dashboard-viewer>->caddy | caddy->grafana | grafana->prometheus | prometheus->grafana | grafana->caddy | caddy-><testbed: dashboard-viewer>
+    (6 of 6 messages not in an earlier sample)
+    <testbed: dashboard-viewer>->caddy req POST path=["/grafana","/grafana/*"]
+    caddy->grafana req POST /grafana/api/ds/query (host grafana.default.svc.cluster.local:80)
+    grafana->prometheus req POST /prometheus-meta/api/v1/query (host prometheus-meta)
+    prometheus->grafana resp POST /prometheus-meta/api/v1/query 200 (host prometheus-meta)
+    grafana->caddy resp POST /grafana/api/ds/query 200 (host grafana.default.svc.cluster.local:80)
+    caddy-><testbed: dashboard-viewer> resp POST path=["/grafana","/grafana/*"] 200
+
+6.3 route: <a node: kubelet, or a pod on its host network> + <the VM: the testbed's kubectl>->kube-apiserver | kube-apiserver-><etcd> | <etcd>->kube-apiserver | kube-apiserver-><authz-webhook> | <authz-webhook>->kube-apiserver | kube-apiserver-><a node: kubelet, or a pod on its host network> + <testbed: jwt-workload> + <the VM: the testbed's kubectl>
+    (2 of 6 messages not in an earlier sample)
+    <a node: kubelet, or a pod on its host network> + <the VM: the testbed's kubectl>->kube-apiserver req GET /api/v1/namespaces/{namespace}/configmaps/{name}
+    kube-apiserver-><etcd> req POST /etcdserverpb.KV/Range (host 127.0.0.1:2379)
+    <etcd>->kube-apiserver resp POST /etcdserverpb.KV/Range 200 (host 127.0.0.1:2379)
+    kube-apiserver-><authz-webhook> req POST /authorize (host ccfg-authz.example.com:8443)
+    <authz-webhook>->kube-apiserver resp POST /authorize 200 (host ccfg-authz.example.com:8443)
+    kube-apiserver-><a node: kubelet, or a pod on its host network> + <testbed: jwt-workload> + <the VM: the testbed's kubectl> resp GET /api/v1/namespaces/{namespace}/pods 200
+
+## Length 4
+
+4.1 route: <grafana.com>->grafana | grafana-><storage.googleapis.com> | <storage.googleapis.com>->grafana | grafana-><grafana.com>
+    (4 of 4 messages not in an earlier sample)
+    <grafana.com>->grafana resp GET /api/plugins/grafana-exploretraces-app/versions/3.0.0/download 302 (host grafana.com)
+    grafana-><storage.googleapis.com> req GET /grafana-plugins-catalog/grafana-exploretraces-app/release/3.0.0/grafana-exploretraces-app-3.0.0.zip (host storage.googleapis.com)
+    <storage.googleapis.com>->grafana resp GET /grafana-plugins-catalog/grafana-exploretraces-app/release/3.0.0/grafana-exploretraces-app-3.0.0.zip 200 (host storage.googleapis.com)
+    grafana-><grafana.com> req GET /api/plugins/grafana-exploretraces-app/versions/3.0.0/download (host grafana.com)
+
+4.2 route: <prometheus-loadgen-querier>->caddy | caddy-><prometheus-test-pr-16075> | <prometheus-test-pr-16075>->caddy | caddy-><prometheus-loadgen-querier>
+    (4 of 4 messages not in an earlier sample)
+    <prometheus-loadgen-querier>->caddy req GET path=["/16075/prometheus-pr","/16075/prometheus-pr/*"]
+    caddy-><prometheus-test-pr-16075> req GET /16075/prometheus-pr/api/v1/query (host prometheus-test-pr-16075.prombench-16075.svc.cluster.local:80)
+    <prometheus-test-pr-16075>->caddy resp GET /16075/prometheus-pr/api/v1/query 200 (host prometheus-test-pr-16075.prombench-16075.svc.cluster.local:80)
+    caddy-><prometheus-loadgen-querier> resp GET path=["/16075/prometheus-pr","/16075/prometheus-pr/*"] 200
+
+4.3 route: <prometheus-loadgen-querier>->caddy | caddy-><prometheus-test-v3-2-1> | <prometheus-test-v3-2-1>->caddy | caddy-><prometheus-loadgen-querier>
+    (4 of 4 messages not in an earlier sample)
+    <prometheus-loadgen-querier>->caddy req GET path=["/16075/prometheus-release","/16075/prometheus-release/*"]
+    caddy-><prometheus-test-v3-2-1> req GET /16075/prometheus-release/api/v1/query (host prometheus-test-v3-2-1.prombench-16075.svc.cluster.local:80)
+    <prometheus-test-v3-2-1>->caddy resp GET /16075/prometheus-release/api/v1/query 200 (host prometheus-test-v3-2-1.prombench-16075.svc.cluster.local:80)
+    caddy-><prometheus-loadgen-querier> resp GET path=["/16075/prometheus-release","/16075/prometheus-release/*"] 200

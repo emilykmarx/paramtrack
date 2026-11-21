@@ -30,6 +30,13 @@ CONFIG_SOURCES = {
 # stalled (1-5 attempts a minute vs run 1's ~1260) and run 2 lost 11 of run 1's labels (sends and the shipped
 # webhook's /hook response) (user's choice, 2026-11-17)
 ARGMATCH_ARGS = {"MAXTIME": "0.3s", "MAXMEM": "1GB", "CALLINTERVAL": "10s"}
+# Alerts, identified by their labels (as Alertmanager's own fingerprint is: model.LabelSet.Fingerprint), carry a
+# received POST /api/v2/alerts to the notifications that send them: the handler hands them to the alert store (Put),
+# which hands them to the dispatcher over a channel; its aggregation groups' goroutines flush them to the notifiers
+# (Integration.Notify) later, on other goroutines, so no context ID or stack connects the two (2026-11-19)
+CARRIERS = {"specs": ["github.com/prometheus/alertmanager/types.Alert:Labels"],
+            "functions": ["github.com/prometheus/alertmanager/provider/mem.(*Alerts).Put",
+                          "github.com/prometheus/alertmanager/notify.(*Integration).Notify"]}
 GOLITS_PACKAGE = "./cmd/alertmanager"
 GOLITS_TAGS = "netgo"  # (.promu.yml)
 TITLE = "Alertmanager, roots: its three YAML config files"
