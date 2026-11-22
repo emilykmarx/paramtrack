@@ -3,12 +3,12 @@
 from each other and from those sampled at other lengths.
 
 "Different" (sample, greedily, longest lengths first):
-- a path's route is its sequence of (sender, receiver) hops, e.g. caddy->grafana, grafana->prometheus, ...: paths with
+- a path's route is its sequence of (sender, receiver) hops, e.g. caddy => grafana, grafana => prometheus, ...: paths with
   the same route differ only in which messages went over the same hops. A sampled path's route is one no path
   sampled so far (at any length) has, while the length has such paths;
 - among those, the path with the most messages (nodes) no sampled path has, so a sample doesn't repeat the same
   requests (e.g. kube-apiserver's etcd calls) with only one message changed; ties broken by the path's text.
-Each sampled path is printed with its length, route and how many of its messages are new, a message per line.
+Each sampled path is printed with its length, route (its endpoints in order: route_text) and how many of its messages are new, a message per line.
 
 Usage: uv run --with pandas --with networkx --with tabulate --with matplotlib --with pyyaml --with numpy
 python sample_paths.py --run <paramtrack --out dir> [--api-ids f] [--external f] [--per-length N] [--min-length N]
@@ -23,6 +23,16 @@ import message_paths as mp  # (next to this file: the graph and its paths)
 
 def route(p):
     return tuple((n.snd, n.rcv) for n in p)
+
+
+def route_text(hops):
+    """A route as its endpoints in order, X => Y => Z; a hop whose sender isn't the previous hop's receiver (which
+    message_paths' edges don't make, but a type logged by several modules, a;b, could) starts a new run, after a
+    " | " """
+    out = f"{hops[0][0]} => {hops[0][1]}"
+    for (_, prev), (s, r) in zip(hops, hops[1:]):
+        out += f" => {r}" if s == prev else f" | {s} => {r}"
+    return out
 
 
 def sample(paths, per_length):
@@ -60,7 +70,7 @@ def main():
     for length, ps in picked.items():
         lines.append(f"## Length {length}")
         for i, (p, new) in enumerate(ps, 1):
-            lines += ["", f"{length}.{i} route: " + " | ".join(f"{s}->{r}" for s, r in route(p)),
+            lines += ["", f"{length}.{i} route: " + route_text(route(p)),
                       f"    ({new} of {length} messages not in an earlier sample)"]
             lines += [f"    {mp.label(n)}" for n in p]
         lines.append("")

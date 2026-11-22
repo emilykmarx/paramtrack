@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """The longest paths messages take through a paramtrack run's modules, from step 5's events of every module.
 
-A node is a message between two endpoints: one type row of unmatched_messages.py's matching (match_messages: a sent
+A node is a message between two endpoints: the type rows of unmatched_messages.py's matching (match_messages: a sent
 type and the received type it pairs with; a type only one side logged has its other side named by --external, as in
-unmatched_messages.py), annotated with sender -> receiver. So a proxied message is two nodes: as the proxy received it,
-and as the proxy sent it. External endpoints aren't nodes: they appear only as a message's sender or receiver.
+unmatched_messages.py) between the same sender and receiver that share a label on either side, annotated with sender
+=> receiver. A side's labels are contexttrack's (message_graph.py's _label_fields, on the side's events), so e.g. the
+requests Caddy proxies to Grafana under one route pattern are one node, whatever paths Grafana received them as. A
+proxied message is two nodes: as the proxy received it, and as the proxy sent it. External endpoints aren't nodes: they
+appear only as a message's sender or receiver.
 
 Edges, X -> Y:
 - within a module M, X received by M and Y sent by M: the received-message matrices' cell rule (evidence_matrix.py's
@@ -15,10 +18,12 @@ Edges, X -> Y:
   and Y the response M received to it.
 
 Prints every maximal path (from a node with no predecessor, or any node of a cycle nothing enters, until it can't go on
-without repeating a node) of at least --min-length nodes, longest first, a line each: <length>: <node> => <node> => ...;
-a message node is
-<sender>-><receiver> req|resp <method> <path> [<code>] [(host <host>)] (the path: the receiver's route pattern when it
-logged one; the host: the one the client sent the request to, when the client side was logged).
+without repeating a node) of at least --min-length nodes, longest first, a line each: <length>: <node> ==> <node> ==>
+...; a message node is (label)
+<sender> => <receiver> req|resp <method> [<code>]: {<sender's labels>} => {<receiver's labels>}
+each label its route pattern or path (a Caddy pattern without its path=), {} for a side no module logged; when both
+sides' labels are the same, just {<labels>}; at most SHOW_PATHS (5) per side, then ", ...<N> paths elided"; a single
+label without the braces.
 
 Usage: uv run --with pandas --with networkx --with tabulate --with matplotlib --with pyyaml --with numpy
 python message_paths.py --run <paramtrack --out dir> [--api-ids f] [--external f] [--min-length N] [--grep regex]
@@ -33,11 +38,49 @@ import networkx as nx
 
 import unmatched_messages as um  # (next to this file: the matching)
 import evidence_matrix  # (next to this file: the received matrices' cell rule)
+import message_graph  # noqa: E402  (contexttrack's, on the path unmatched_messages puts it on: message labels)
 
 SIDE_KIND = {"snd_req": "Request sent", "rcv_req": "Request received",
              "snd_resp": "Response sent", "rcv_resp": "Response received"}
 
-Node = collections.namedtuple("Node", "message snd rcv stype rtype")  # stype/rtype: match_messages types or None
+# stypes/rtypes: the match_messages types of its rows' sides; slabels/rlabels: those sides' labels (side_labels)
+Node = collections.namedtuple("Node", "message snd rcv stypes rtypes slabels rlabels")
+
+
+def side_labels(ev):
+    """An event's label as contexttrack's message_graph labels it (_label_fields, on its route-stamped event), as a
+    tuple of (field, value)"""
+    return tuple(message_graph._label_fields(ev))
+
+
+def merge(protos):
+    """Nodes from (message, snd, rcv, stype or None, rtype or None, slabels, rlabels) rows: rows with the same
+    message, sender and receiver that share a label on either side are one node (union-find)"""
+    parent = list(range(len(protos)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    first = {}
+    for i, (msg, snd, rcv, _, _, sl, rl) in enumerate(protos):
+        for key in [(msg, snd, rcv, "s", lab) for lab in sl] + [(msg, snd, rcv, "r", lab) for lab in rl]:
+            if key in first:
+                parent[find(i)] = find(first[key])
+            else:
+                first[key] = i
+    groups = collections.defaultdict(list)
+    for i in range(len(protos)):
+        groups[find(i)].append(protos[i])
+    node_of = {}
+    for ps in groups.values():
+        msg, snd, rcv = ps[0][:3]
+        n = Node(msg, snd, rcv, frozenset(p[3] for p in ps if p[3]), frozenset(p[4] for p in ps if p[4]),
+                 frozenset().union(*(p[5] for p in ps)), frozenset().union(*(p[6] for p in ps)))
+        for p in ps:
+            node_of[id(p)] = n
+    return [node_of[id(p)] for p in protos]
 
 
 def build(run, api_ids=None, external=()):
@@ -47,11 +90,13 @@ def build(run, api_ids=None, external=()):
     type as the module logged it (match_messages' sides: snd_req, rcv_req, snd_resp, rcv_resp); "nodes_of",
     (side, type) => the nodes it is a side of"""
     events = []  # (module, side, type, context ID, (method, path), ts)
+    labels = collections.defaultdict(set)  # (side, type) => its events' labels (side_labels)
 
     peers = um.Peers(run, external)
 
     def on_message(module, side, typ, ev):
         peers.record_server(module, side, typ, ev)
+        labels[(side, typ)].add(side_labels(ev))
         cid = (ev.get("context") or {}).get("context_id")
         m = ev.get("message") or {}
         events.append((module, side, typ, cid, (m.get("req.Method"), m.get("req.URL.Path")), ev.get("ts")))
@@ -59,9 +104,8 @@ def build(run, api_ids=None, external=()):
     sides = {}
     rows = um.match(run, api_ids, on_message, sides)
     by_id = {f"{name}#{i}": typ for name, side in sides.items() for typ, i in side.ids.items()}
-    # The nodes, and the nodes of each (side, type)
-    nodes_of = collections.defaultdict(list)
-    unmatched = []
+    # The nodes (rows merged by label: merge), and the nodes of each (side, type)
+    unmatched, protos = [], []
     for row in rows:
         req = row["message"] == "request"
         s, r = by_id.get(row.get("snd_type_id")), by_id.get(row.get("rcv_type_id"))
@@ -72,11 +116,15 @@ def build(run, api_ids=None, external=()):
             unmatched.append((row, name))
             name = name or f"<unexplained: {desc}>"
             snd, rcv = (row["snd_components"], name) if s else (name, row["rcv_components"])
-        n = Node(row["message"], snd, rcv, s, r)
-        if s:
-            nodes_of[("snd_req" if req else "snd_resp", s)].append(n)
-        if r:
-            nodes_of[("rcv_req" if req else "rcv_resp", r)].append(n)
+        ss, rs = ("snd_req", "rcv_req") if req else ("snd_resp", "rcv_resp")
+        protos.append((row["message"], snd, rcv, s, r, frozenset(labels[(ss, s)]) if s else frozenset(),
+                       frozenset(labels[(rs, r)]) if r else frozenset()))
+    nodes_of = collections.defaultdict(list)
+    for p, n in zip(protos, merge(protos)):
+        req = p[0] == "request"
+        for side, typ in (("snd_req" if req else "snd_resp", p[3]), ("rcv_req" if req else "rcv_resp", p[4])):
+            if typ and n not in nodes_of[(side, typ)]:
+                nodes_of[(side, typ)].append(n)
 
     g = nx.DiGraph(rows=rows, unmatched=unmatched)
     g.add_nodes_from(n for ns in nodes_of.values() for n in ns)
@@ -108,29 +156,48 @@ def build(run, api_ids=None, external=()):
             if evidence_matrix.shared_ids(d, r, c)[0]:
                 g.add_edge(r[1], c[1])
 
-    # A request and its own response
-    reqs = [n for n in g if n.message == "request"]
+    # A request and its own response: the responder's response types name their request's type as it received it;
+    # when the responder is external, the client's name it as it sent it
+    by_rtype, by_stype = collections.defaultdict(set), collections.defaultdict(set)
+    for q in (n for n in g if n.message == "request"):
+        for t in q.rtypes:
+            by_rtype[t].add(q)
+        for t in q.stypes:
+            by_stype[t].add(q)
     for n in [n for n in g if n.message == "response"]:
-        if n.stype:  # (the responder logged it: its request as received)
-            for q in reqs:
-                if q.rtype == n.stype[2] and (q.snd, q.rcv) == (n.rcv, n.snd):
-                    g.add_edge(q, n)
-        else:  # (an external responder: its request as sent)
-            for q in reqs:
-                if q.stype == n.rtype[2] and (q.snd, q.rcv) == (n.rcv, n.snd):
-                    g.add_edge(q, n)
+        qs = set().union(*(by_rtype[t[2]] for t in n.stypes)) if n.stypes else \
+            set().union(*(by_stype[t[2]] for t in n.rtypes))
+        for q in qs:
+            if (q.snd, q.rcv) == (n.rcv, n.snd):
+                g.add_edge(q, n)
     return g
 
 
+SHOW_PATHS = 5  # (label: the patterns or paths shown per side; the rest are counted)
+
+
 def label(n):
-    t = n.stype or n.rtype
-    req = t if n.message == "request" else t[2]
-    path = (n.rtype if n.message == "request" else n.rtype[2])[3] if n.rtype else req[3]
-    code = f" {t[1]}" if n.message == "response" else ""
-    # The client side's request type has the host it was sent to (a sent request's; a received response's request's)
-    client = n.stype if n.message == "request" else (n.rtype[2] if n.rtype else None)
-    host = f" (host {client[2]})" if client and client[2] else ""
-    return f"{n.snd}->{n.rcv} {'req' if n.message == 'request' else 'resp'} {req[1]} {path}{code}{host}"
+    """A node as the docstring says: <sender> => <receiver> req|resp <method> [<code>]: {<sender's labels>} =>
+    {<receiver's labels>}"""
+    def field(lab, *names):
+        f = dict(lab)
+        return next((f[k] for k in names if f.get(k)), None)
+
+    def paths(labs):  # (a side's patterns or paths, sorted)
+        return sorted({field(lab, "pattern", "path", "req.URL.Path") for lab in labs} - {None})
+
+    def show(ps):  # (at most SHOW_PATHS of them; one without braces)
+        if len(ps) == 1:
+            return ps[0].removeprefix("path=")
+        more = f", ...{len(ps) - SHOW_PATHS} paths elided" if len(ps) > SHOW_PATHS else ""
+        return "{" + ", ".join(p.removeprefix("path=") for p in ps[:SHOW_PATHS]) + more + "}"
+    labs = n.slabels | n.rlabels
+    method = "/".join(sorted({field(lab, "method", "req.Method") for lab in labs} - {None}))
+    code = "/".join(sorted({field(lab, "code", "resp.StatusCode") for lab in labs} - {None}))
+    kind = "req" if n.message == "request" else "resp"
+    sl, rl = paths(n.slabels), paths(n.rlabels)
+    return (f"{n.snd} => {n.rcv} {kind} {method}{' ' + code if code and n.message == 'response' else ''}: "
+            + (show(sl) if sl == rl else f"{show(sl)} => {show(rl)}"))
 
 
 def starts(g):
@@ -189,7 +256,7 @@ def main():
     paths = []
     for p in maximal_paths(g):
         if len(p) >= a.min_length:
-            text = " => ".join(map(label, p))
+            text = " ==> ".join(map(label, p))
             if not rx or rx.search(text):
                 paths.append((len(p), text))
     paths.sort(key=lambda x: (-x[0], x[1]))

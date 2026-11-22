@@ -35,9 +35,9 @@ def endpoints(n, modules):
 
 
 def side_label(side, typ, nodes):
-    """A message type as one module logged it, as message_paths.label writes a node but with this side's own path
-    (a received request's route pattern, a sent request's concrete path), and the client side's host (types differ by
-    it, e.g. each node exporter Prometheus scrapes): <peers> req|resp <method> <path> [<code>] [(host <host>)]"""
+    """A message type as one module logged it (match_messages' type: a received request's route pattern, a sent
+    request's concrete path), with the client side's host (types differ by it, e.g. each node exporter Prometheus
+    scrapes) and the endpoints of its nodes: <peers> req|resp <method> <path> [<code>] [(host <host>)]"""
     req = typ if side.endswith("req") else typ[2]
     ends = " + ".join(sorted({f"{n.snd}->{n.rcv}" for n in nodes})) or "?"
     code = f" {typ[1]}" if side.endswith("resp") else ""
