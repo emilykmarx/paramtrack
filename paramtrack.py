@@ -17,6 +17,7 @@ import shutil
 import sys
 
 import common
+import events  # (the events cut at the run's cutoff, for step 6)
 import layout  # (where a run's step outputs are)
 import modules  # (modules/<module>/module.py: each module's settings and hooks)
 from common import ARGMATCH_LABELS, CONFIGKEYS, GOPLS, STATS, log_command, run, say, source_version
@@ -346,8 +347,18 @@ class Workflow:
                 raise RuntimeError(f"argmatch found no matches in {m.name}; see {tb}/{m.name}")
 
     def label_values(self, m, d):
-        run([sys.executable, f"{ARGMATCH_LABELS}/join.py", m.file("5-matches", "matches.calls.csv"),
-             m.file("5-matches", "events.jsonl"), d], log=f"{d}/summary.txt", timeout=900)
+        # Join the events cut at the run's cutoff (events.py; the cutoff and counts in cutoff.json), from a copy that's
+        # deleted afterwards
+        src, cut = m.file("5-matches", "events.jsonl"), f"{d}/events.cut.jsonl"
+        t, n, left = events.cut_file(src, cut)
+        json.dump({"events": src, "cutoff_ts": t, "kept": n, "left_out": left}, open(f"{d}/cutoff.json", "w"), indent=1)
+        if left:
+            say(f"{m.name}: joining {n} events, leaving out {left} after the run's cutoff (ts {t})")
+        try:
+            run([sys.executable, f"{ARGMATCH_LABELS}/join.py", m.file("5-matches", "matches.calls.csv"), cut, d],
+                log=f"{d}/summary.txt", timeout=900)
+        finally:
+            os.remove(cut)
         say(open(f"{d}/summary.txt").readline().strip())
 
     # ---------------------------------------------------------------------------------------------------------------

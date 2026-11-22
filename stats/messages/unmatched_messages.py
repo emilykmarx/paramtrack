@@ -81,6 +81,7 @@ import message_graph  # noqa: E402  (contexttrack's: message labels)
 
 sys.path.insert(0, common.ARGMATCH_LABELS)
 import join  # noqa: E402  (argmatch-labels': label normalization, as label_keys.csv's labels)
+from events import read as read_events  # noqa: E402  (paramtrack's: events cut at the run's cutoff)
 
 STEP = "5-matches"
 
@@ -292,10 +293,11 @@ def match(run, api_ids=None, on_message=None, sides=None):
     sides.update({k: match_messages.Side(k) for k in ("snd_req", "rcv_req", "snd_resp", "rcv_resp")})
     with tempfile.TemporaryDirectory() as d:
         for module, path in module_events(run).items():
-            # (match_messages names a component after its file: <module>.jsonl)
+            # (match_messages names a component after its file: <module>.jsonl; the events cut at the run's cutoff,
+            # events.py)
             link = Path(d, f"{module}.jsonl")
-            link.symlink_to(os.path.abspath(path))
             print(f"reading {module} ({path})", file=sys.stderr)
+            link.write_text("".join(json.dumps(e) + "\n" for e in read_events(path)))
             if api_ids:
                 api_ids.module = module
             match_messages.collect(link, sides, on_message and functools.partial(on_message, module))

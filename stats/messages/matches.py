@@ -37,6 +37,7 @@ import sys
 import pandas as pd
 
 import chains  # (next to this file; it imports argmatch-labels' join.py)
+from events import read as read_events  # (paramtrack's, on the path chains puts it on: events cut at the run's cutoff)
 import layout  # (paramtrack's: where a run's step outputs are; chains puts paramtrack on the path)
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -90,7 +91,7 @@ def joined_calls(run):
     """(kind, message) => the argmatch calls its events join with, as join.py joins them (its main(), keeping the
     call IDs), and the (kind, label) of each message event"""
     calls = list(csv.DictReader(open(f"{layout.step_dir(run, '5-matches')}/matches.calls.csv", newline="")))
-    events = [json.loads(line) for line in open(f"{layout.step_dir(run, '5-matches')}/events.jsonl") if line.strip()]
+    events = read_events(f"{layout.step_dir(run, '5-matches')}/events.jsonl")
     labels = join.message_labels(events)
 
     def key(frames):

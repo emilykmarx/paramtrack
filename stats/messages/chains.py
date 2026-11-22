@@ -37,6 +37,7 @@ import join  # noqa: E402  (argmatch-labels' join.py: message_labels)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 import layout  # noqa: E402  (paramtrack's: where a run's step outputs are)
 import modules  # noqa: E402  (paramtrack's modules: CHAIN_FUNCTIONS)
+from events import read as read_events  # noqa: E402  (paramtrack's: events cut at the run's cutoff)
 
 MODULE = "github.com/prometheus/prometheus/"  # (message_chains sets it to the run's Go module; short strips it)
 MODULE_FUNCTIONS = (MODULE,)  # (message_chains sets it to the run's module's CHAIN_FUNCTIONS)
@@ -137,7 +138,7 @@ def message_chains(run, step=STEP, kinds=KINDS):
     global MODULE, MODULE_FUNCTIONS
     MODULE = json.load(open(f"{layout.step_dir(run, '2-full-keys')}/settings.json"))["module"] + "/"
     MODULE_FUNCTIONS = tuple(getattr(modules.load(MODULE.rstrip("/")), "CHAIN_FUNCTIONS", (MODULE,)))
-    events = [json.loads(line) for line in open(f"{layout.step_dir(run, step)}/events.jsonl") if line.strip()]
+    events = read_events(f"{layout.step_dir(run, step)}/events.jsonl")
     chains = collections.defaultdict(list)
     for i, label in join.message_labels(events).items():
         if events[i]["kind"] in kinds:
@@ -154,7 +155,7 @@ def message_context_ids(run, step=STEP, kinds=KINDS):
 def message_exchanges(run, step=STEP, kinds=KINDS):
     """(kind, message) => its events' (context ID, (req.Method, req.URL.Path)), as message_context_ids. A request and
     its response have the same all three (req.URL.Host is only in the request)"""
-    events = [json.loads(line) for line in open(f"{layout.step_dir(run, step)}/events.jsonl") if line.strip()]
+    events = read_events(f"{layout.step_dir(run, step)}/events.jsonl")
     out = collections.defaultdict(set)
     for i, label in join.message_labels(events).items():
         if events[i]["kind"] in kinds:

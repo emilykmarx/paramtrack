@@ -48,6 +48,7 @@ import sys
 import pandas as pd
 
 import chains  # (next to this file)
+from events import read as read_events  # (paramtrack's, on the path chains puts it on: events cut at the run's cutoff)
 import layout  # (paramtrack's: where a run's step outputs are; chains puts paramtrack on the path)
 import matches  # (next to this file)
 
@@ -91,7 +92,7 @@ def normalization_examples(run):
     """One example per NORMALIZE rule, from the run's messages (chains.STEP's events): the first label (sorted) the
     rule itself changes (after the rules before it), as the matrix shows it (chains.show_label) before and after
     normalizing"""
-    events = [json.loads(line) for line in open(f"{layout.step_dir(run, chains.STEP)}/events.jsonl") if line.strip()]
+    events = read_events(f"{layout.step_dir(run, chains.STEP)}/events.jsonl")
     raw = sorted(set(chains.join.message_labels(events, normalized=False).values()))
     rules = chains.join.NORMALIZE
     out = []
