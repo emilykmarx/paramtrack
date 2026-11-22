@@ -17,8 +17,10 @@ python sample_paths.py --run <paramtrack --out dir> [--api-ids f] [--external f]
 
 import argparse
 import collections
+import os
 
 import message_paths as mp  # (next to this file: the graph and its paths)
+import path_influence  # (next to this file: the sections that influence the paths' messages)
 
 
 def route(p):
@@ -62,8 +64,10 @@ def main():
     ap.add_argument("--min-length", type=int, default=4, help="shortest length sampled (default %(default)s, as "
                                                                "message_paths.py's)")
     ap.add_argument("--out", required=True, help="the sample (text)")
+    ap.add_argument("--influence", help="also write the config sections that influence each sampled path's messages "
+                                        "here (path_influence.py), with the same path IDs")
     a = ap.parse_args()
-    g = mp.build_from_args(a)
+    g = mp.build_from_args(a, params=bool(a.influence))
     picked = sample((p for p in mp.maximal_paths(g) if len(p) >= a.min_length), a.per_length)
     lines = [f"# Sampled paths (stats/messages/sample_paths.py --run {a.run}): up to {a.per_length} per length, "
              "each with a route no earlier sample has where possible, and the most messages no earlier sample has", ""]
@@ -76,6 +80,15 @@ def main():
         lines.append("")
     open(a.out, "w").write("\n".join(lines))
     print(f"wrote {a.out}: {sum(len(ps) for ps in picked.values())} paths")
+    if a.influence:
+        lines = [f"# Config sections influencing the sampled paths' messages (stats/messages/sample_paths.py --run "
+                 f"{a.run} --influence; path IDs as in {os.path.basename(a.out)}; see path_influence.py for the rules)",
+                 ""]
+        for length, ps in picked.items():
+            for i, (p, _) in enumerate(ps, 1):
+                lines += [f"{length}.{i}"] + path_influence.lines_for(f"{length}.{i}", p, g) + [""]
+        open(a.influence, "w").write("\n".join(lines))
+        print(f"wrote {a.influence}")
 
 
 if __name__ == "__main__":

@@ -87,30 +87,35 @@ def needle_full_keys(run):
     return fks
 
 
-def joined_calls(run):
-    """(kind, message) => the argmatch calls its events join with, as join.py joins them (its main(), keeping the
-    call IDs), and the (kind, label) of each message event"""
+def message_key(event, label):
+    """joined_calls' default key: the event's (kind, message), as the matrices key messages"""
+    return event["kind"], chains.message_label(label)
+
+
+def joined_calls(run, key=message_key, kinds=chains.KINDS):
+    """key(event, label) => the argmatch calls the events with that key join with, as join.py joins them (its
+    main(), keeping the call IDs), for the message events of the given kinds (the sent ones by default)"""
     calls = list(csv.DictReader(open(f"{layout.step_dir(run, '5-matches')}/matches.calls.csv", newline="")))
     events = read_events(f"{layout.step_dir(run, '5-matches')}/events.jsonl")
     labels = join.message_labels(events)
 
-    def key(frames):
+    def frames_key(frames):
         return tuple(t[:3] for t in frames)
 
     index = collections.defaultdict(list)
     for c in calls:
         ch = join.chain(c["stack"], c["ancestry"])
-        index[(ch[0][1], c["function"], key(ch[1:]))].append(c["call"])
+        index[(ch[0][1], c["function"], frames_key(ch[1:]))].append(c["call"])
     out = collections.defaultdict(set)
     for ei, e in enumerate(events):
-        if ei not in labels or e["kind"] not in chains.KINDS:
+        if ei not in labels or e["kind"] not in kinds:
             continue
-        msg = (e["kind"], chains.message_label(labels[ei]))
+        msg = key(e, labels[ei])
         ch = join.chain(e["stack"], e["ancestry"])
         for i, (kind, gid, _, names) in enumerate(ch):
             if kind != "frame":
                 continue
-            older = key(ch[i + 1:])
+            older = frames_key(ch[i + 1:])
             for fn in set(names):
                 out[msg].update(index.get((gid, fn, older), []))
     return out

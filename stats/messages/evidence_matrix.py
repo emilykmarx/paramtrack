@@ -200,8 +200,12 @@ rgba(0,0,0,.15)}#tip .v{font-weight:600}#tip .kv{padding-left:12px}#tip .s{color
 details{margin-top:12px;color:var(--text-secondary)}"""
 
 
-def load(run):
-    """Everything the matrix needs, from the run directory"""
+def load_evidence(run):
+    """The matrix's rows and cells, from the run directory (no events): its sections, each section's in-scope keys,
+    eligible keys (section => unambiguous full keys set with a value searched for), evidence ((kind, message) =>
+    section => its unambiguous evidence full keys), via (((kind, message), section) => evidence full key => its
+    matched values), and value_sections (value of an unambiguous key => its sections). A cell has evidence when its
+    evidence keys and the section's eligible keys meet (cells())"""
     fkdf = pd.read_csv(f"{layout.step_dir(run, '8-stats')}/full_keys.csv", keep_default_na=False, dtype=str)
     section_of = dict(zip(fkdf.key, fkdf.section))  # in-scope full key => section
     section_keys = fkdf.groupby("section").key.apply(lambda ks: sorted(set(ks))).to_dict()  # section => its keys
@@ -235,6 +239,15 @@ def load(run):
             if fk in unamb_keys:
                 evidence[msg][section_of[fk]].add(fk)
                 via[(msg, section_of[fk])][fk].add(r["needle"])
+    return dict(sections=sections, section_keys=section_keys, eligible=eligible, evidence=evidence, via=via,
+                value_sections=value_sections)
+
+
+def load(run):
+    """Everything the matrix needs, from the run directory: load_evidence's, and the messages (msgs, ordered by chain
+    group, and group_of) and their anchors"""
+    e = load_evidence(run)
+    value_sections = e.pop("value_sections")
 
     # Messages, ordered by chain group
     ch = chains.message_chains(run, kinds=tuple(PAGES))  # (kind, label) => chains, for every message
@@ -257,8 +270,7 @@ def load(run):
             if v in p or p in v or v == method:
                 for s in secs:
                     anchors[k][s].add(v)
-    return dict(sections=sections, section_keys=section_keys, eligible=eligible, evidence=evidence, via=via, msgs=order, group_of=group_of,
-                anchors=anchors)
+    return dict(e, msgs=order, group_of=group_of, anchors=anchors)
 
 
 def by_chain_group(ch, msgs):

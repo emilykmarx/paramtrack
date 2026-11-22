@@ -101,6 +101,15 @@ def read_api_ids(path):
     return out
 
 
+# match_messages.collect prepares each module's events with dedup_responses and _stamp_routes; also attribute each
+# response to its request (its api_id), so they're labelled as message_graph.messages, and join.py (the matrices),
+# label them. (Matching doesn't change: response types take their api_id from their request's type.) ApiIds wraps
+# this in turn, so its replaced api_ids don't reach the responses.
+match_messages._stamp_routes = message_graph.messages
+
+ORIGINAL_API_ID = "api_id_before_api_ids"  # (an event's api_id before ApiIds replaced it; None if it had none)
+
+
 class ApiIds:
     """Replaces the api_ids of the request events --api-ids' lines match, after match_messages' collect has stamped
     routes (and with them the received requests' api_ids: message_graph._stamp_routes), by wrapping the
@@ -134,6 +143,7 @@ class ApiIds:
                 # (its label as label_keys.csv has it, before the replacement; no "paths" field)
                 label = join.normalize(message_graph._msg_label(ev))
                 self.replaced[made_up][(real or "(none)", self.module, kind)].add(label)
+                ev[ORIGINAL_API_ID] = ev.get("api_id")  # (for labels as contexttrack gives them: message_paths)
                 ev["api_id"] = made_up
                 return
 
