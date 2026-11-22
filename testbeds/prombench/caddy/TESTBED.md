@@ -13,7 +13,9 @@ API. prometheus-meta runs stock (upstream's image, the shipped config) unless th
 `../upstream.py`'s docstring and the patches in `../patches*/` say what's deployed and why.
 
 - **Shipped concrete config:** [shipped-config.json](shipped-config.json), next to this file: the config the
-  controller generates for prombench's Ingresses and its ConfigMap, as `cc_vm.py shipped` prints it.
+  controller generates for prombench's Ingresses and its ConfigMap, as `cc_vm.py shipped` prints it while the
+  controller runs a build of our source (upstream's `caddy/ingress:v0.2.1` image writes a Prefix path `/x` as `/x*`,
+  not `/x`, `/x/*`).
 - **Information about the testbed:** the deployed manifests, `$CT/paramtrack-prombench-caddy/prombench/manifests/`
   on the VM (upstream prombench with the patches), say which services exist. Clients reach the module through its
   service (`caddy-caddy-ingress-controller.caddy-system`, ports 80 and 443): the loadgen querier queries the benchmark

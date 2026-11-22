@@ -811,8 +811,8 @@ class Prombench:
     or it's another variant). Builds the instrumented modules' images and loads them; restarts every module, the
     instrumented ones with their concrete configs and the rest stock; once all are ready (and Caddy's concrete config
     is loaded), runs the workload for `wait` seconds: a simulated person views Grafana's dashboards through Caddy's
-    ingress (the experiment's view_dashboards.py), and the loadgen querier queries the benchmark Prometheus instances
-    through it; `RELOAD_AFTER` seconds in, each instrumented module reloads its config. Then captures each
+    ingress (the experiment's view_dashboards.py), the loadgen querier queries the benchmark Prometheus instances
+    through it, and a client outside the cluster scrapes the fake-webservers through it (fake_webserver_client); `RELOAD_AFTER` seconds in, each instrumented module reloads its config. Then captures each
     instrumented module's outputs in <out_dir>/<module>/ (OUTPUTS, logs), and which address was which pod, node or
     service then (ADDRESSES); every module's pod log is in <out_dir>/<module>/pod.log. (`wait` counts from when every
     config is loaded, not from the restart: under argmatch, loading a large config can take minutes, which would
@@ -886,7 +886,7 @@ class Prombench:
                             "http://localhost:3000/grafana", "--duration", str(self.wait),
                             "--user-agent", common.testbed_agent("dashboard-viewer")],
                            stdout=open(f"{out_dir}/viewer.log", "w"), stderr=subprocess.STDOUT)
-            helpers += [pf, viewer]
+            helpers += [pf, viewer, self.fake_webserver_client(out_dir)]
             helpers += [p for c in instrumented if (p := c.workload(out_dir, self.wait))]
             reloaded = False
             while (t := time.time() - loaded) < self.wait:
@@ -977,7 +977,8 @@ class PrombenchVM:
              "testbeds/prombench/grafana/shipped-datasources.yaml", "testbeds/prombench/grafana/shipped-dashboards.yaml",
              *(f"testbeds/prombench/kube-apiserver/{f}" for f in ("fixtures.py", "ca.crt", "server.crt", "server.key",
                                                                    "jwt.key")),
-             "testbeds/prombench/prometheus/shipped-config.yaml", "testbeds/prombench/caddy/shipped-config.json"]
+             "testbeds/prombench/prometheus/shipped-config.yaml", "testbeds/prombench/caddy/shipped-config.json",
+             "testbeds/prombench/fake_webserver_client.py"]
 
     POLL = 30  # seconds between checks on the run
     GIVE_UP = 1200  # seconds of failed ssh calls before giving up
@@ -1027,6 +1028,20 @@ class PrombenchVM:
                 inputs[f"testbeds/prombench/{d}/{p}"] = f"{HERE}/testbeds/prombench/{d}/{p}"
         for d in self.FILES:
             inputs[d] = f"{HERE}/{d}"
+    def fake_webserver_client(self, out_dir):
+        """Starts the workload's fake-webserver client (testbeds/prombench/fake_webserver_client.py): from outside the
+        cluster (this machine), through Caddy's NodePort on a node's IP, to the fake-webservers' Ingress (patch 0103),
+        for the whole workload"""
+        ip = upstream.kubectl("get", "nodes", "-o", "jsonpath={.items[0].status.addresses[?(@.type=='InternalIP')]"
+                              ".address}").strip()
+        port = upstream.kubectl("-n", CaddyController.NS, "get", CaddyController.SERVICE, "-o",
+                                "jsonpath={.spec.ports[?(@.port==80)].nodePort}").strip()
+        url = f"http://{ip}:{port}/fake-webserver/metrics"
+        say(f"fake-webserver client: {url}")
+        return popen([sys.executable, f"{HERE}/testbeds/prombench/fake_webserver_client.py", url,
+                      common.testbed_agent("fake-webserver-client"), str(self.wait)],
+                     stdout=open(f"{out_dir}/fake-webserver-client.log", "w"), stderr=subprocess.STDOUT)
+
         args = ["python3", "testbeds.py", "--out", "out", "--wait", str(self.wait)]
         dirs = {}
         for name, m in sorted(modules.items()):

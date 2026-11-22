@@ -109,6 +109,33 @@
             {
               "handle": [
                 {
+                  "handler": "rewrite",
+                  "strip_path_prefix": "/fake-webserver"
+                },
+                {
+                  "handler": "reverse_proxy",
+                  "transport": {
+                    "protocol": "http"
+                  },
+                  "upstreams": [
+                    {
+                      "dial": "fake-webserver.prombench-16075.svc.cluster.local:8080"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "path": [
+                    "/fake-webserver",
+                    "/fake-webserver/*"
+                  ]
+                }
+              ]
+            },
+            {
+              "handle": [
+                {
                   "handler": "reverse_proxy",
                   "transport": {
                     "protocol": "http"

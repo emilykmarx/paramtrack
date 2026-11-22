@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emily Marx <emilykmarx@alumni.stanford.edu>
+Date: Sat, 21 Nov 2026 22:30:02 -0800
+Subject: [PATCH] Expose the fake-webservers through Caddy's ingress
+
+From Jamie Anzai-Wurfbain's 0e97cf9: an Ingress routes /fake-webserver to the
+fake-webserver service's first port, so a client outside the cluster can reach
+them at http://<node IP>:<Caddy's NodePort>/fake-webserver/metrics (paramtrack's
+testbed queries them there). With the PR's namespace templated rather than
+prombench-16075, and Caddy's rewrite-strip-prefix, since the fake-webservers
+serve /metrics, not /fake-webserver/metrics.
+---
+ .../prombench/benchmark/4_fake-webserver.yaml | 21 +++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/prombench/manifests/prombench/benchmark/4_fake-webserver.yaml b/prombench/manifests/prombench/benchmark/4_fake-webserver.yaml
+index 21d3740..4094138 100644
+--- a/prombench/manifests/prombench/benchmark/4_fake-webserver.yaml
++++ b/prombench/manifests/prombench/benchmark/4_fake-webserver.yaml
+@@ -120,3 +120,24 @@ spec:
+     targetPort: metrics5
+   selector:
+     app: fake-webserver
++---
++apiVersion: networking.k8s.io/v1
++kind: Ingress
++metadata:
++  name: ingress-fake-webserver
++  namespace: prombench-{{ .PR_NUMBER }}
++  annotations:
++    caddy.ingress.kubernetes.io/disable-ssl-redirect: "true"
++    caddy.ingress.kubernetes.io/rewrite-strip-prefix: /fake-webserver
++spec:
++  ingressClassName: caddy
++  rules:
++  - http:
++      paths:
++      - path: /fake-webserver
++        pathType: Prefix
++        backend:
++          service:
++            name: fake-webserver
++            port:
++              number: 8080
+-- 
+2.34.1
+

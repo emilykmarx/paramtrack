@@ -32,7 +32,8 @@ storage.googleapis.com => <storage.googleapis.com>
 # Node exporters, on their node's IP (host network)
 *:9100 => <node-exporter>
 
-# kind's Docker network gateway: the VM itself, i.e. the testbed's kubectl (exec, port-forward, patches, applies)
+# kind's Docker network gateway: the VM itself, i.e. the testbed's kubectl (exec, port-forward, patches, applies); a
+# request with a Kubectl-Command header is named by its command instead (unmatched_messages.Peers.peer_name)
 172.18.0.1 => <the VM: the testbed's kubectl>
 
 # Loopback clients of a module's server, left unmatched: a module's own loopback requests pair (match_messages'

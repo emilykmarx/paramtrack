@@ -28,9 +28,10 @@ unmatched message's peer address, and the first line one matches names it:
 An address no line matches is named from those identities (Peers.derived_name: a pod's workload or a service's
 name, without the namespace, or a node), unless it is a module's: a message between modules that didn't pair is
 unexplained.
-A client whose User-Agent (the server side's events' user_agent, since 2026-11-19) starts with
-`paramtrack-testbed/<job>`, as the testbed's workload tags its requests (common.TESTBED_AGENT), is named
-<testbed: <job>> instead.
+A client is named instead from what it says it is (Peers.peer_name), unless its address is a module's: the testbed
+workload's job, from a User-Agent (the server side's events' user_agent, since 2026-11-19) of
+`paramtrack-testbed/<job>` (common.TESTBED_AGENT); the kubectl command that sent it (kubectl_command, since
+2026-11-22); or, for a node's IP, the product its User-Agent names.
 A message is external if every peer of it is named; the others are listed as unexplained, first.
 
 match_messages pairs a sent and a received request only if their api_ids are equal, and an api_id names the library
@@ -258,34 +259,50 @@ class Peers:
 
     @staticmethod
     def of(row):
-        """An unmatched row's peers, as (address, User-Agent or None), and whether they're the request's host (else
-        its clients: their IPs, with their User-Agents if the events had them, match_messages' client_agents)"""
+        """An unmatched row's peers, as (address, User-Agent or None, kubectl command or None), and whether they're
+        the request's host (else its clients: their IPs, with their User-Agents and kubectl commands if the events
+        had them, match_messages' client_agents)"""
         sent_req = row["status"] == ("unmatched-sender" if row["message"] == "request" else "unmatched-receiver")
         if sent_req:  # (a sent request, or the response received to one: the host it went to)
             host = row["snd_host"] if row["message"] == "request" else row["rcv_host"]
-            return ([(host, None)] if host else []), True
+            return ([(host, None, None)] if host else []), True
         if row.get("client_agents"):
-            return [(ip, agent) for ip, agent in json.loads(row["client_agents"])], False
-        return [(ip, None) for ip in row.get("client_ips", "").split(";") if ip], False
+            # (entries before 2026-11-22 are [ip, user_agent], without the command)
+            return [(c[0], c[1] or None, (c[2] if len(c) > 2 else "") or None)
+                    for c in json.loads(row["client_agents"])], False
+        return [(ip, None, None) for ip in row.get("client_ips", "").split(";") if ip], False
 
-    def peer_name(self, addr, agent=None):
-        """A peer's name: a testbed workload's job (<testbed: <job>>), from its User-Agent; else name(addr). Not the
-        job for a module's address: a proxy passes its client's User-Agent on (e.g. Caddy the viewer's to Grafana), so
-        it names who started the request, not the peer that sent it"""
-        if agent and agent.startswith(common.TESTBED_AGENT) \
-                and not any(i.startswith("module ") for i in self.identities(addr)):
+    def peer_name(self, addr, agent=None, command=None):
+        """A peer's name, from what the client says it is, else from its address (name):
+        - a testbed workload's job, <testbed: <job>>, from its User-Agent (common.testbed_agent);
+        - else the kubectl command that sent it, <kubectl <command>>, e.g. <kubectl patch> (its Kubectl-Command
+          header: kubectl's User-Agent is the same for every command);
+        - else, for a node's IP (the kubelet and every pod on the node's host network share it), the product its
+          User-Agent names, e.g. <kube-controller-manager>, <kube-probe> (the kubelet's probes);
+        - else name(addr).
+        Not from what the client says for a module's address: a proxy passes its client's headers on (e.g. Caddy the
+        viewer's to Grafana), so they name who started the request, not the peer that sent it"""
+        if any(i.startswith("module ") for i in self.identities(addr)):
+            return self.name(addr)
+        if agent and agent.startswith(common.TESTBED_AGENT):
             return f"<testbed: {agent[len(common.TESTBED_AGENT):]}>"
-        return self.name(addr)
+        if command:
+            return f"<{command}>"
+        name = self.name(addr)
+        if name == self.NODE and agent:
+            return f"<{agent.split('/')[0].split(' ')[0]}>"
+        return name
 
     def classify(self, row):
         """(external name or None, description of the peers)"""
         peers, is_host = self.of(row)
         if not peers:
             return None, "peer unknown" + ("" if is_host else " (no conn: no client IPs)")
-        names = [self.peer_name(a, agent) for a, agent in peers]
+        names = [self.peer_name(a, agent, command) for a, agent, command in peers]
         descs = []
-        for a in dict.fromkeys(a for a, _ in peers):  # (an address once, with its User-Agents)
-            ids = self.identities(a)[2:] + [f"User-Agent {agent}" for b, agent in peers if b == a and agent]
+        for a in dict.fromkeys(a for a, _, _ in peers):  # (an address once, with its User-Agents and commands)
+            ids = self.identities(a)[2:] + [f"User-Agent {agent}" for b, agent, _ in peers if b == a and agent] + \
+                [f"{command}" for b, _, command in peers if b == a and command]
             descs.append(a + (f" ({'; '.join(ids)})" if ids else ""))
         return (" + ".join(sorted(set(names))) if all(names) else None), ("host " if is_host else "from ") + ", ".join(descs)
 

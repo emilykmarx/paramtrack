@@ -155,17 +155,27 @@ def cluster_exists():
     return CLUSTER in run(["kind", "get", "clusters"], timeout=60).split()
 
 
+# The ConfigMap (in namespace default) deploy records the patches it deployed with in (patches_hash), so that a
+# cluster deployed with other patches is redeployed
+DEPLOYED = "paramtrack-deployed"
+
+
 def cluster_variant():
     """The deployed cluster's variant (by its ingress controller's namespace), None if there's no cluster, or
     "unknown" (e.g. a cluster of the removed nginx variant); "<variant> on <image>" if its nodes don't run
-    NODE_IMAGE"""
+    NODE_IMAGE, "<variant> with other patches" if it was deployed with other patches than the variant's now (or before
+    deploys recorded them: DEPLOYED)"""
     if not cluster_exists():
         return None
     image = run(["docker", "inspect", "-f", "{{.Config.Image}}", f"{CLUSTER}-control-plane"], timeout=60).strip()
     for v in VARIANTS.values():
         if subprocess.run(["kubectl", "--context", CTX, "get", "namespace", v.ingress_namespace],
                           capture_output=True, timeout=60).returncode == 0:
-            return v.name if image == VARS["NODE_IMAGE"] else f"{v.name} on {image}"
+            if image != VARS["NODE_IMAGE"]:
+                return f"{v.name} on {image}"
+            p = subprocess.run(["kubectl", "--context", CTX, "-n", "default", "get", "configmap", DEPLOYED, "-o",
+                                "jsonpath={.data.patches}"], capture_output=True, text=True, timeout=60)
+            return v.name if p.returncode == 0 and p.stdout.strip() == patches_hash(v) else f"{v.name} with other patches"
     return "unknown"
 
 
@@ -224,6 +234,7 @@ def deploy(variant, log_dir):
         raise RuntimeError(f"applying cluster-infra exited {code}:\n{tail}(see {log_dir}/cluster-infra.log)")
     infra(v, "resource", "apply", "-f", f"{bench}/7_nginx-ingress-routes.yaml", "-f", f"{bench}/8_loadgen.yaml",
           log=f"{log_dir}/benchmark-7-8.log", timeout=1200)
+    kubectl("-n", "default", "create", "configmap", DEPLOYED, f"--from-literal=patches={patches_hash(v)}")
     say(f"prombench deployed ({variant})")
 
 
