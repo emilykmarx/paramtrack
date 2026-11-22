@@ -60,6 +60,11 @@ SKILL.md's constraint 2 says how to check them. On prombench:
 - **Labels that depend on timing,** not the config: none known among the five-module baselines: its 142 labels were
   identical in B6-B9 (../README.md, "Labels that depend on timing"). Candidates if one appears: requests that arrive
   while the controller restarts, and which Grafana API calls the dashboard viewer happens to make.
+- **Labels only a fresh cluster produces:** the controller's lock lease for storage cleaning: `GET
+  .../namespaces/caddy-system/leases/caddy-lock-storage.clean` answered 404, then `POST .../caddy-system/leases`
+  creating it. On a reused cluster the lease exists already, so a check there lacks both (etcd's skill-run checks,
+  2026-11-22, on the shipped Caddy config, against fresh-cluster baseline B10 `results/runs/2026-11-22-b10`; B9, also
+  fresh, had only the GET).
 
 paramtrack's testbed leaves the controller running the config it ran, on the instrumented image. When done, put back
 the shipped config (a restart does: the controller loads its generated config, and then `cc_vm.py apply

@@ -10,6 +10,7 @@ that module and the skill's helpers:
 |---|---|---|---|
 | [prometheus/](prometheus/) | Prometheus | `prometheus-meta` | `PrometheusMeta` |
 | [caddy/](caddy/) | Caddy's ingress controller | `caddy-caddy-ingress-controller` (namespace `caddy-system`) | `CaddyController` |
+| [etcd/](etcd/) | etcd | kind's static pod `etcd-<node>` (namespace `kube-system`) | `Etcd` |
 | [kube-apiserver/](kube-apiserver/) | The Kubernetes API server | kind's static pod `kube-apiserver-<node>` (namespace `kube-system`) | `KubeAPIServer` |
 | [alertmanager/](alertmanager/) | Alertmanager | `alertmanager` | `Alertmanager` |
 | [grafana/](grafana/) | Grafana | `grafana-core` | `Grafana` |

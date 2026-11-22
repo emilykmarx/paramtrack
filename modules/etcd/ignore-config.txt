@@ -1,0 +1,18 @@
+# etcd's config full keys out of scope (stats.py --ignore): behaviors the testbed can't exercise (user's decisions,
+# 2026-11-22). One fnmatch pattern per line.
+# - The v2 proxy mode (proxy, proxy-*, discovery-fallback; decoded into etcdmain.configProxy, not the root): in proxy
+#   mode etcd runs as a proxy instead of a member, and the testbed's etcd is the cluster's only member.
+proxy
+proxy-*
+discovery-fallback
+# - Peers: the testbed's etcd is the cluster's only member (kubeadm's single control-plane node), so it has no peer
+#   traffic. (Flag-only peer keys, e.g. peer-crl-file, have no file key to list.)
+peer-transport-security.*
+listen-peer-urls
+initial-advertise-peer-urls
+# - Discovery: bootstrapping a cluster's members through a discovery service or DNS SRV records; the testbed's member
+#   is bootstrapped by kubeadm, and its data directory already holds the cluster.
+discovery
+discovery-proxy
+discovery-srv
+discovery-srv-name

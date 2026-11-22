@@ -49,7 +49,7 @@ Module-/testbed-specific commands to apply a config, add associated files, reloa
 ### 2. **Comparable behavior to baseline**
 Two sub-constraints:
 - With the new config, the module produces every distinct message label it produced in the baseline run (with the shipped config).
-  - Note that some labels depend on timing, not the config (TESTBED.md gives examples) - the check described below helps handle this. Some labels also only appear when a cluster first starts, but thus far we've only seen this affect the kubernetes API server.
+  - Note that some labels depend on timing, not the config (TESTBED.md gives examples) - the check described below helps handle this. Some labels also only appear when a cluster first starts (the kubernetes API server's, and two of Caddy's): the module's or the other modules' TESTBED.md lists them, so a check on a reused cluster that lacks them isn't a loss.
 - With the new config, the testbed makes limited requests outside the testbed
   - If you're considering a choice that may add new requests to third-party services:
     - If you're running interactively, ask. Else, err on the side of caution - don't make that choice, and note it in the output.
@@ -148,7 +148,7 @@ To identify keys that meet the multi-part "target key" definition above:
 
 **Evaluating the objectives**:
 Some checks are slower than others - TESTBED.md has estimates.
-Perform faster checks early and often, e.g. the module's config check command. The message label check may take several minutes.
+Perform faster checks early and often, e.g. the module's config check command. The message label check may take several minutes. Run the config check on every candidate, and read its result, before its label check: a config the module can't load fails the label check only after a long timeout, and for a module the testbed depends on (e.g. etcd, under the cluster's API) it takes the testbed down meanwhile.
 
 ### Output
 5. Score the final configs, and write the outputs in "Outputs" below.

@@ -41,4 +41,7 @@ it will produce; don't wait or poll: the completion notification brings its repo
 - Wire the list into paramtrack: create the module's directory and `module.py` under paramtrack's `modules/` if they
   don't exist yet (`modules/__init__.py` lists the settings and hooks; start from an existing module's), then set its
   `DOCS` to the list, and write its `docs_kind` for the list's types (the README lists them); add a `docs_entry` hook
-  only if some lines still need normalizing.
+  only if some lines still need normalizing. Set its `FORMAT` by the struct tags the decoder reads, not the file's
+  syntax: a YAML file decoded through JSON (`sigs.k8s.io/yaml`, Kubernetes' codecs) is `json` (etcd, kube-apiserver),
+  since with `yaml` the graph finds no tagged types. paramtrack also parses concrete configs by `FORMAT`, so such a
+  module's configs are written as JSON (valid YAML); say so in its MODULE.md/TESTBED.md.

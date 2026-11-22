@@ -1,0 +1,108 @@
+advertise-client-urls	<comma-separated list>
+auth-token	<string>
+auth-token-ttl	<int>
+auto-compaction-mode	<string>
+auto-compaction-retention	<string>
+backend-batch-interval	<duration>
+backend-batch-limit	<int>
+backend-bbolt-freelist-type	<string>
+bcrypt-cost	<int>
+cipher-suites	<comma-separated list>
+client-cert-file	<string>
+client-crl-file	<string>
+client-key-file	<string>
+client-transport-security.allowed-hostname	<comma-separated list>
+client-transport-security.auto-tls	<bool>
+client-transport-security.cert-file	<string>
+client-transport-security.client-cert-auth	<bool>
+client-transport-security.key-file	<string>
+client-transport-security.trusted-ca-file	<string>
+cors	<comma-separated list>
+data-dir	<string>
+discovery	<string>
+discovery-fallback	<string>
+discovery-proxy	<string>
+discovery-srv	<string>
+discovery-srv-name	<string>
+election-timeout	<int>
+enable-grpc-gateway	<bool>
+enable-log-rotation	<bool>
+enable-pprof	<bool>
+enable-v2	<bool>
+experimental-bootstrap-defrag-threshold-megabytes	<int>
+experimental-compact-hash-check-enabled	<bool>
+experimental-compact-hash-check-time	<duration>
+experimental-compaction-batch-limit	<int>
+experimental-corrupt-check-time	<duration>
+experimental-distributed-tracing-address	<string>
+experimental-distributed-tracing-instance-id	<string>
+experimental-distributed-tracing-sampling-rate	<int>
+experimental-distributed-tracing-service-name	<string>
+experimental-downgrade-check-time	<duration>
+experimental-enable-distributed-tracing	<bool>
+experimental-enable-lease-checkpoint	<bool>
+experimental-enable-lease-checkpoint-persist	<bool>
+experimental-enable-v2v3	<string>
+experimental-initial-corrupt-check	<bool>
+experimental-memory-mlock	<bool>
+experimental-peer-skip-client-san-verification	<bool>
+experimental-stop-grpc-service-on-defrag	<bool>
+experimental-txn-mode-write-with-shared-buffer	<bool>
+experimental-warning-apply-duration	<duration>
+experimental-watch-progress-notify-interval	<duration>
+force-new-cluster	<bool>
+grpc-keepalive-interval	<duration>
+grpc-keepalive-min-time	<duration>
+grpc-keepalive-timeout	<duration>
+heartbeat-interval	<int>
+host-whitelist	<string>
+initial-advertise-peer-urls	<comma-separated list>
+initial-cluster	<string>
+initial-cluster-state	<string>
+initial-cluster-token	<string>
+initial-election-tick-advance	<bool>
+listen-client-http-urls	<comma-separated list>
+listen-client-urls	<comma-separated list>
+listen-metrics-urls	<comma-separated list>
+listen-peer-urls	<comma-separated list>
+log-level	<string>
+log-outputs	[]string
+log-rotation-config-json	<string>
+logger	<string>
+max-concurrent-streams	<int>
+max-request-bytes	<int>
+max-snapshots	<int>
+max-txn-ops	<int>
+max-wals	<int>
+metrics	<string>
+name	<string>
+peer-client-cert-file	<string>
+peer-client-key-file	<string>
+peer-crl-file	<string>
+peer-transport-security.allowed-cn	<comma-separated list>
+peer-transport-security.allowed-hostname	<comma-separated list>
+peer-transport-security.auto-tls	<bool>
+peer-transport-security.cert-file	<string>
+peer-transport-security.client-cert-auth	<bool>
+peer-transport-security.key-file	<string>
+peer-transport-security.trusted-ca-file	<string>
+pre-vote	<bool>
+proxy	<string>
+proxy-dial-timeout	<int>
+proxy-failure-wait	<int>
+proxy-read-timeout	<int>
+proxy-refresh-interval	<int>
+proxy-write-timeout	<int>
+quota-backend-bytes	<int>
+raft-read-timeout	<duration>
+raft-write-timeout	<duration>
+self-signed-cert-validity	<int>
+snapshot-count	<int>
+socket-reuse-address	<bool>
+socket-reuse-port	<bool>
+strict-reconfig-check	<bool>
+tls-max-version	<string>
+tls-min-version	<string>
+unsafe-no-fsync	<bool>
+v2-deprecation	<string>
+wal-dir	<string>

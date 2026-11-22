@@ -1,0 +1,25 @@
+{
+  "name": "prombench-control-plane",
+  "data-dir": "/var/lib/etcd",
+  "advertise-client-urls": "https://NODE_IP:2379",
+  "initial-advertise-peer-urls": "https://NODE_IP:2380",
+  "initial-cluster": "prombench-control-plane=https://NODE_IP:2380",
+  "listen-client-urls": "https://127.0.0.1:2379,https://NODE_IP:2379",
+  "listen-metrics-urls": "http://127.0.0.1:2381",
+  "listen-peer-urls": "https://NODE_IP:2380",
+  "snapshot-count": 10000,
+  "experimental-initial-corrupt-check": true,
+  "experimental-watch-progress-notify-interval": 5000000000,
+  "client-transport-security": {
+    "cert-file": "/etc/kubernetes/pki/etcd/server.crt",
+    "key-file": "/etc/kubernetes/pki/etcd/server.key",
+    "client-cert-auth": true,
+    "trusted-ca-file": "/etc/kubernetes/pki/etcd/ca.crt"
+  },
+  "peer-transport-security": {
+    "cert-file": "/etc/kubernetes/pki/etcd/peer.crt",
+    "key-file": "/etc/kubernetes/pki/etcd/peer.key",
+    "client-cert-auth": true,
+    "trusted-ca-file": "/etc/kubernetes/pki/etcd/ca.crt"
+  }
+}

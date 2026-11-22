@@ -152,7 +152,7 @@ class Workflow:
         # /concreteconfig")
         shutil.copy(t.config, f"{d}/{self.config_name(t)}")
         if self.config_files(t):
-            shutil.copytree(self.config_files(t), f"{d}/files")
+            shutil.copytree(self.config_files(t), f"{d}/files", symlinks=True)
 
     def static_settings(self, t):
         """The static settings step 2 records in the target's settings.json, defaults filled in"""
@@ -219,9 +219,13 @@ class Workflow:
         def tree(root):
             return {os.path.relpath(os.path.join(dp, f), root): os.path.join(dp, f)
                     for dp, _, fs in os.walk(root) for f in fs} if root and os.path.isdir(root) else {}
+        def same(a, b):  # (a symlink, e.g. to a file only the testbed has, by its target)
+            if os.path.islink(a) or os.path.islink(b):
+                return os.path.islink(a) and os.path.islink(b) and os.readlink(a) == os.readlink(b)
+            return filecmp.cmp(a, b, shallow=False)
         ta, tb = tree(files_a), tree(files_b)
         return filecmp.cmp(config_a, config_b, shallow=False) and ta.keys() == tb.keys() and \
-            all(filecmp.cmp(ta[f], tb[f], shallow=False) for f in ta)
+            all(same(ta[f], tb[f]) for f in ta)
 
     def check_config_copy(self, t, d):
         """When resuming: stop if the target's --config or its files differ from step 2's copies, which the later
@@ -630,7 +634,10 @@ def main():
         m = Module(modules.load(name), out)
         if any(o.name == m.name for o in mods):
             sys.exit(f"--module {name}: module {m.name} given twice")
-        if m.name not in testbeds.COMPONENTS:
+        # (Steps 1-2 don't run the testbed: a module being onboarded runs them before it's in the testbed)
+        last = [Workflow.step_index(s) for s in a.only] or [Workflow.step_index(a.until) if a.until else len(Workflow.STEPS)]
+        before_testbed = max(last) < Workflow.STEPS.index("3-chains")
+        if m.name not in testbeds.COMPONENTS and not before_testbed:
             sys.exit(f"--module {name}: the testbed doesn't run {m.name} (testbeds.py's COMPONENTS: "
                      f"{', '.join(testbeds.COMPONENTS)})")
         mods.append(m)

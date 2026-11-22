@@ -1,5 +1,5 @@
 """paramtrack's testbed for its dynamic phase: prombench, with Caddy's ingress controller in place of ingress-nginx, in
-a kind cluster on a GCE VM. Each module in prombench (COMPONENTS: the cluster's API server, Prometheus as
+a kind cluster on a GCE VM. Each module in prombench (COMPONENTS: the cluster's etcd and API server, Prometheus as
 prometheus-meta, Caddy's ingress controller, Alertmanager, Grafana) runs either instrumented, if the run instruments it (built with argmatch
 and contexttrack, run with a concrete config per config root, or else its shipped configs, its events and argmatch's
 matches collected), or stock (upstream's image, the shipped configs). See README.md.
@@ -66,12 +66,12 @@ class Component:
     none ({}), with its shipped configs (SHIPPED_CONFIGS: e.g. a baseline run's). Otherwise stock: STOCK_IMAGE, with the
     shipped configs. Its files go to <out_dir>/<NAME>/.
 
-    To add a module to the testbed, subclass this and add the class to COMPONENTS (its order is the start order; the
-    API server's comes first). The subclass sets:
+    To add a module to the testbed, subclass this and add the class to COMPONENTS (its order is the start order; etcd
+    and the API server come first). The subclass sets:
     - NAME: the module's directory under modules/ (and its --module name);
     - DOCKERFILE (usually modules/<NAME>/argmatch.Dockerfile, built FROM the builder image and the stock image, from
       $CT), SRC (the checkout, relative to $CT), TAG, STOCK_IMAGE, and BUILD_ARGS / BUILD_CONTEXTS if it needs them;
-    - NS, DEPLOY, CONTAINER, LABEL: where it runs (a deployment, unless it overrides stop and start, as KubeAPIServer);
+    - NS, DEPLOY, CONTAINER, LABEL: where it runs (a deployment, unless it overrides stop and start, as StaticPod);
     - SHIPPED_CONFIGS: root => the testbed's own config file, under testbeds/prombench/<NAME>/, for each root the
       testbed ships a config for.
     And overrides:
@@ -516,7 +516,164 @@ class CaddyController(Component):
                                f"{self.out}/running-config.json): did the controller replace it?")
 
 
-class KubeAPIServer(Component):
+class StaticPod(Component):
+    """A module that runs as kind's static pod on the control-plane node (NODE): kubeadm's manifest MANIFEST in the
+    node, which the kubelet runs as the pod DEPLOY. Stopping it removes the manifest (saved first, the first time, at
+    ORIGINAL, outside the kubelet's manifests directory) and waits for its container (CRI_NAME) to be gone; starting it
+    writes the manifest to run (manifest(): the original if stock) and waits until it serves (serving()). Restarted
+    only if instrumented or not running the original. The subclass sets MANIFEST, ORIGINAL, CRI_NAME, SERVE_WITHIN,
+    DEPLOY, CONTAINER, and overrides manifest (instrument_pod helps) and serving."""
+
+    NODE = f"{upstream.CLUSTER}-control-plane"
+    NS = "kube-system"
+    MANIFEST = ORIGINAL = CRI_NAME = None
+    SERVE_WITHIN = 900  # seconds to serve after start (instrumented, it starts slowly)
+
+    def node(self, *cmd, input=None, timeout=120, check=True):
+        full = ["docker", "exec", *(["-i"] if input is not None else []), self.NODE, *cmd]
+        log_command(full)
+        p = subprocess.run(full, input=input, capture_output=True, text=True, timeout=timeout)
+        if check and p.returncode != 0:
+            raise RuntimeError(f"exit {p.returncode}: {' '.join(full)}: {p.stderr.strip()[-1000:]}")
+        return p.stdout
+
+    def manifest(self, original):
+        """The static pod manifest to run: the original (stock), or the instrumented one"""
+        raise NotImplementedError
+
+    def serving(self):
+        raise NotImplementedError
+
+    def before_stop(self):
+        """Anything to do before it stops, while it still runs (e.g. needs the cluster's API)"""
+
+    def instrument_pod(self, pod, command):
+        """pod (the parsed original manifest) with the instrumented image, command, CONFTAMER_EVENTS, /argmatch-out
+        mounted, and patient probes (under argmatch it starts and answers slowly: let the kubelet wait, up to 20
+        minutes to start, rather than restart it); returns its container"""
+        c = pod["spec"]["containers"][0]
+        c["image"], c["imagePullPolicy"], c["command"] = self.TAG, "Never", command
+        c["env"] = [{"name": "CONFTAMER_EVENTS", "value": f"{self.pod_out}/events.jsonl"}]
+        c.setdefault("volumeMounts", []).append({"name": "argmatch-out", "mountPath": "/argmatch-out"})
+        pod["spec"].setdefault("volumes", []).append(
+            {"name": "argmatch-out", "hostPath": {"path": "/argmatch-out", "type": "Directory"}})
+        for probe, failures in (("startupProbe", 120), ("livenessProbe", 30), ("readinessProbe", 30)):
+            if probe in c:
+                c[probe].update(failureThreshold=failures, timeoutSeconds=60)
+        return c
+
+    def stop(self):
+        """Saves the original manifest (first time), then removes the running one, unless it's already the one to
+        run"""
+        self.node("sh", "-c", f"mkdir -p {os.path.dirname(self.ORIGINAL)} && "
+                              f"{{ [ -e {self.ORIGINAL} ] || cp {self.MANIFEST} {self.ORIGINAL}; }}")
+        self.original = self.node("cat", self.ORIGINAL)
+        current = self.node("cat", self.MANIFEST, check=False)
+        self.before_stop()
+        self.restart = self.instrumented or current != self.original
+        if not self.restart:
+            return
+        self.node("rm", "-f", self.MANIFEST)
+        start = time.time()
+        while self.node("crictl", "ps", "-q", "--name", f"^{self.CRI_NAME}$").strip():
+            if time.time() - start > 300:
+                raise RuntimeError(f"{self.NAME}: still running 300s after its manifest was removed")
+            time.sleep(5)
+        say(f"{self.NAME}: stopped")
+
+    def start(self):
+        if not self.restart:
+            return
+        self.node("sh", "-c", f"cat > {self.MANIFEST}", input=self.new_manifest)
+        start = time.time()
+        while not self.serving():
+            if time.time() - start > self.SERVE_WITHIN:
+                tail = self.node("sh", "-c", f"crictl logs --tail 40 $(crictl ps -a -q --name '^{self.CRI_NAME}$' | "
+                                 "head -1) 2>&1", check=False)
+                raise RuntimeError(f"{self.NAME}: not serving {self.SERVE_WITHIN}s after start; its log ends:\n{tail}")
+            time.sleep(5)
+        self.served = True
+        say(f"{self.NAME}: serving after {time.time() - start:.0f}s")
+
+    def ready(self):
+        return True  # (start waited until it serves)
+
+    def restore(self):
+        """After a failed restart: the original manifest back, if this run stopped the pod and it didn't come back
+        (no manifest yet, or the new one never served: e.g. its config didn't load)"""
+        if not getattr(self, "restart", False) or getattr(self, "served", False):
+            return
+        try:
+            self.node("cp", self.ORIGINAL, self.MANIFEST, check=False)
+            say(f"{self.NAME}: put back the original manifest after the failed restart")
+        except subprocess.TimeoutExpired:
+            pass
+
+    def check_capture(self):
+        image = self.k("get", self.DEPLOY, "-o", "jsonpath={.spec.containers[0].image}").strip()
+        if image != self.TAG:
+            raise RuntimeError(f"{self.NAME}: running {image} at the capture, not {self.TAG}")
+
+
+class Etcd(StaticPod):
+    """etcd, built from modules/etcd/argmatch.Dockerfile: the cluster's own, kubeadm's static pod on the control-plane
+    node (registry.k8s.io/etcd:3.5.15-0, the checkout's version), which kubeadm configures by flags only.
+    Instrumented: kubeadm's manifest with TAG's image, CONFTAMER_EVENTS, /argmatch-out mounted, patient probes, and the
+    command `etcd --config-file=<the config>`, the config in /argmatch-out/<NAME>/config/ and its files in
+    /argmatch-out/<NAME>/files/ (the host's upstream.ARGMATCH_OUT/<NAME>/...; etcd then ignores its
+    flags, so a config repeats the ones it needs: SHIPPED_CONFIGS' is kubeadm's flags as a file). A config names the
+    node's IP as NODE_IP (kind assigns the nodes' IPs in the order they start), which configure replaces with
+    kubeadm's (its --advertise-client-urls). Stock: kubeadm's manifest.
+    The API server stores everything in it, so it stops last and starts first (COMPONENTS' order), and start() waits
+    until it's healthy (its metrics listener's /health, from the node). No reload: etcd reads its config only at
+    start."""
+
+    NAME = "etcd"
+    DOCKERFILE = f"{HERE}/modules/etcd/argmatch.Dockerfile"
+    SRC = "etcd-paramtrack"
+    TAG = "etcd-conftamer:v3.5.15"
+    DEPLOY, CONTAINER = f"pod/etcd-{StaticPod.NODE}", "etcd"
+    MANIFEST = "/etc/kubernetes/manifests/etcd.yaml"  # in NODE
+    ORIGINAL = "/etc/kubernetes/paramtrack-original/etcd.yaml"
+    CRI_NAME = "etcd"
+    SHIPPED_CONFIGS = {"config": f"{HERE}/testbeds/prombench/etcd/shipped-config.json"}
+    NODE_IP = "NODE_IP"  # in a config: the node's IP, which differs between clusters (configure fills it in)
+    HEALTH = "http://127.0.0.1:2381/health"  # (kubeadm's --listen-metrics-urls, which the shipped config keeps)
+
+    def config_path(self, base):
+        return f"{base}/config/config{os.path.splitext(self.config)[1]}"
+
+    def manifest(self, original):
+        if not self.instrumented:
+            return original
+        import yaml
+        pod = yaml.safe_load(original)
+        self.instrument_pod(pod, ["etcd", f"--config-file={self.config_path(self.pod_out)}"])
+        return yaml.safe_dump(pod, sort_keys=False)
+
+    def serving(self):
+        out = self.node("curl", "-s", "-m", "30", self.HEALTH, check=False, timeout=60)
+        return '"health":"true"' in out
+
+    def configure(self):
+        if self.instrumented:
+            # The node's IP (kubeadm's advertise address) for the config's NODE_IP
+            ip = re.search(r"--advertise-client-urls=https://([0-9.]+):2379", self.original)
+            if not ip:
+                raise RuntimeError(f"{self.NAME}: no --advertise-client-urls IP in {self.ORIGINAL}")
+            run(["sudo", "mkdir", "-p", self.host_out], timeout=60)
+            run(["sudo", "chmod", "777", self.host_out], timeout=60)
+            run(["sudo", "rm", "-rf", f"{self.host_out}/config", f"{self.host_out}/files"] +
+                [f"{self.host_out}/{f}" for f in OUTPUTS], timeout=60)
+            os.makedirs(f"{self.host_out}/config")
+            with open(self.config_path(self.host_out), "w") as f:
+                f.write(open(self.config).read().replace(self.NODE_IP, ip.group(1)))
+            if self.files:  # (the config refers to them as /argmatch-out/etcd/files/<name>)
+                shutil.copytree(self.files, f"{self.host_out}/files", symlinks=True)
+        self.new_manifest = self.manifest(self.original)
+
+
+class KubeAPIServer(StaticPod):
     """The Kubernetes API server, built from modules/kube-apiserver/argmatch.Dockerfile: the cluster's own, kind's static
     pod on the control-plane node (NODE), whose version upstream.NODE_IMAGE pins to the checkout's. Instrumented: kind's
     manifest with TAG's image, CONFTAMER_EVENTS, /argmatch-out mounted, patient probes, and each root's config passed
@@ -533,10 +690,10 @@ class KubeAPIServer(Component):
     SRC = "/home/emily/go/src/k8s.io/kubernetes"  # module.py's MODULE_DIR (outside $CT)
     BUILD_CONTEXTS = {"kubernetes": SRC}
     TAG = "kube-apiserver-conftamer:v1.31.1"
-    NODE = f"{upstream.CLUSTER}-control-plane"
-    NS, DEPLOY, CONTAINER = "kube-system", f"pod/kube-apiserver-{NODE}", "kube-apiserver"
+    DEPLOY, CONTAINER = f"pod/kube-apiserver-{StaticPod.NODE}", "kube-apiserver"
     MANIFEST = "/etc/kubernetes/manifests/kube-apiserver.yaml"  # in NODE
-    ORIGINAL = "/etc/kubernetes/paramtrack-original/kube-apiserver.yaml"  # (outside the kubelet's manifests directory)
+    ORIGINAL = "/etc/kubernetes/paramtrack-original/kube-apiserver.yaml"
+    CRI_NAME = "kube-apiserver"
     # Each root's flag (modules/kube-apiserver/documentedkeys/README.md, "The six files in scope")
     FLAGS = {"authentication": "--authentication-config", "authorization": "--authorization-config",
              "encryption": "--encryption-provider-config", "audit_policy": "--audit-policy-file",
@@ -559,15 +716,6 @@ class KubeAPIServer(Component):
     # them back (InternalError: "identity transformer tried to read encrypted data"), so a run without one redeploys
     # the cluster (Prombench.run). A new cluster's node has no mark.
     ENCRYPTED = "/etc/kubernetes/paramtrack-original/encrypted"
-    SERVE_WITHIN = 900  # seconds for the API server to serve after start (instrumented, it starts slowly)
-
-    def node(self, *cmd, input=None, timeout=120, check=True):
-        full = ["docker", "exec", *(["-i"] if input is not None else []), self.NODE, *cmd]
-        log_command(full)
-        p = subprocess.run(full, input=input, capture_output=True, text=True, timeout=timeout)
-        if check and p.returncode != 0:
-            raise RuntimeError(f"exit {p.returncode}: {' '.join(full)}: {p.stderr.strip()[-1000:]}")
-        return p.stdout
 
     @classmethod
     def encrypted(cls):
@@ -587,51 +735,26 @@ class KubeAPIServer(Component):
         if unknown:
             raise RuntimeError(f"{self.NAME}: no flag for roots {', '.join(sorted(unknown))} (FLAGS)")
         pod = yaml.safe_load(original)
-        c = pod["spec"]["containers"][0]
-        c["image"], c["imagePullPolicy"] = self.TAG, "Never"
         drop = tuple(f"{f}=" for r in self.configs for f in self.REPLACED.get(r, ()))
-        cmd = [a for a in c["command"] if not a.startswith(drop)]
+        cmd = [a for a in pod["spec"]["containers"][0]["command"] if not a.startswith(drop)]
         for root in sorted(self.configs):
             cmd.append(f"{self.FLAGS[root]}={self.config_path(root, self.pod_out)}")
             cmd += self.EXTRA_FLAGS.get(root, [])
-        c["command"] = cmd
-        c["env"] = [{"name": "CONFTAMER_EVENTS", "value": f"{self.pod_out}/events.jsonl"}]
-        c.setdefault("volumeMounts", []).extend([{"name": "argmatch-out", "mountPath": "/argmatch-out"},
-                                                 {"name": "paramtrack-kms", "mountPath": fixtures.KMS_DIR}])
-        pod["spec"].setdefault("volumes", []).extend([
-            {"name": "argmatch-out", "hostPath": {"path": "/argmatch-out", "type": "Directory"}},
-            {"name": "paramtrack-kms", "hostPath": {"path": fixtures.KMS_DIR, "type": "DirectoryOrCreate"}}])
+        c = self.instrument_pod(pod, cmd)
+        c["volumeMounts"].append({"name": "paramtrack-kms", "mountPath": fixtures.KMS_DIR})
+        pod["spec"]["volumes"].append(
+            {"name": "paramtrack-kms", "hostPath": {"path": fixtures.KMS_DIR, "type": "DirectoryOrCreate"}})
         # The fixtures' names (the kubelet adds them to a host-network pod's hosts file too)
         pod["spec"]["hostAliases"] = [{"ip": "127.0.0.1", "hostnames": fixtures.HOSTS}]
-        # Under argmatch it starts and answers slowly: let the kubelet wait (up to 20 minutes to start) rather than
-        # restart it
-        for probe, failures in (("startupProbe", 120), ("livenessProbe", 30), ("readinessProbe", 30)):
-            if probe in c:
-                c[probe].update(failureThreshold=failures, timeoutSeconds=60)
         return yaml.safe_dump(pod, sort_keys=False)
 
     def serving(self):
         return subprocess.run(["kubectl", "--context", self.CTX, "get", "--raw", "/readyz"], capture_output=True,
                               timeout=90).returncode == 0
 
-    def stop(self):
-        """Saves kind's manifest (first time), then removes the running one, unless it's already the one to run"""
-        self.node("sh", "-c", f"mkdir -p {os.path.dirname(self.ORIGINAL)} && "
-                              f"{{ [ -e {self.ORIGINAL} ] || cp {self.MANIFEST} {self.ORIGINAL}; }}")
-        self.original = self.node("cat", self.ORIGINAL)
-        current = self.node("cat", self.MANIFEST, check=False)
+    def before_stop(self):
         if self.instrumented:  # (while the API server is up: the fixtures' RBAC binding)
             fixtures.install(self.NODE, run, say, upstream.load, self.SRC, self.CTX)
-        self.restart = self.instrumented or current != self.original
-        if not self.restart:
-            return
-        self.node("rm", "-f", self.MANIFEST)
-        start = time.time()
-        while self.node("crictl", "ps", "-q", "--name", "^kube-apiserver$").strip():
-            if time.time() - start > 300:
-                raise RuntimeError(f"{self.NAME}: still running 300s after its manifest was removed")
-            time.sleep(5)
-        say(f"{self.NAME}: stopped")
 
     def configure(self):
         if self.instrumented:
@@ -651,22 +774,6 @@ class KubeAPIServer(Component):
                     shutil.copytree(d, f"{self.host_out}/files/{root}")
         self.new_manifest = self.manifest(self.original)
 
-    def start(self):
-        if not self.restart:
-            return
-        self.node("sh", "-c", f"cat > {self.MANIFEST}", input=self.new_manifest)
-        start = time.time()
-        while not self.serving():
-            if time.time() - start > self.SERVE_WITHIN:
-                tail = self.node("sh", "-c", "crictl logs --tail 40 $(crictl ps -a -q --name '^kube-apiserver$' | "
-                                 "head -1) 2>&1", check=False)
-                raise RuntimeError(f"{self.NAME}: not serving {self.SERVE_WITHIN}s after start; its log ends:\n{tail}")
-            time.sleep(5)
-        say(f"{self.NAME}: serving after {time.time() - start:.0f}s")
-
-    def ready(self):
-        return True  # (start waited until it serves)
-
     def workload(self, out_dir, duration):
         return popen([sys.executable, f"{HERE}/testbeds/prombench/kube-apiserver/fixtures.py", "workload", self.CTX,
                       str(duration), f"{self.out}/jwt-workload.log"])
@@ -685,10 +792,6 @@ class KubeAPIServer(Component):
             run(["sudo", "cp", f"{self.host_out}/audit.log", f"{self.out}/audit.log"], timeout=300)
             run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", f"{self.out}/audit.log"], timeout=60)
 
-    def check_capture(self):
-        image = self.k("get", self.DEPLOY, "-o", "jsonpath={.spec.containers[0].image}").strip()
-        if image != self.TAG:
-            raise RuntimeError(f"{self.NAME}: running {image} at the capture, not {self.TAG}")
 
 
 class Alertmanager(Component):
@@ -803,7 +906,7 @@ class Grafana(Component):
 
 # The modules prombench runs, by paramtrack module name (modules/<name>/), in the order they start (and stop in reverse):
 # the API server first, as the others' restarts go through it
-COMPONENTS = {c.NAME: c for c in (KubeAPIServer, PrometheusMeta, CaddyController, Alertmanager, Grafana)}
+COMPONENTS = {c.NAME: c for c in (Etcd, KubeAPIServer, PrometheusMeta, CaddyController, Alertmanager, Grafana)}
 
 
 class Prombench:
@@ -858,9 +961,16 @@ class Prombench:
             upstream.load(c.TAG)
         for c in reversed(comps):
             c.stop()
-        for c in comps:
-            c.configure()
-            c.start()
+        try:
+            for c in comps:
+                c.configure()
+                c.start()
+        except BaseException:
+            # A static pod left stopped (no manifest) would leave the cluster without its API: put kind's back
+            for c in comps:
+                if isinstance(c, StaticPod):
+                    c.restore()
+            raise
         say("modules restarted")
         start = time.time()
         helpers = []  # background processes, stopped at the capture
@@ -917,6 +1027,20 @@ class Prombench:
             c.summarize()
 
 
+    def fake_webserver_client(self, out_dir):
+        """Starts the workload's fake-webserver client (testbeds/prombench/fake_webserver_client.py): from outside the
+        cluster (this machine), through Caddy's NodePort on a node's IP, to the fake-webservers' Ingress (patch 0103),
+        for the whole workload"""
+        ip = upstream.kubectl("get", "nodes", "-o", "jsonpath={.items[0].status.addresses[?(@.type=='InternalIP')]"
+                              ".address}").strip()
+        port = upstream.kubectl("-n", CaddyController.NS, "get", CaddyController.SERVICE, "-o",
+                                "jsonpath={.spec.ports[?(@.port==80)].nodePort}").strip()
+        url = f"http://{ip}:{port}/fake-webserver/metrics"
+        say(f"fake-webserver client: {url}")
+        return popen([sys.executable, f"{HERE}/testbeds/prombench/fake_webserver_client.py", url,
+                      common.testbed_agent("fake-webserver-client"), str(self.wait)],
+                     stdout=open(f"{out_dir}/fake-webserver-client.log", "w"), stderr=subprocess.STDOUT)
+
     def record_addresses(self, out_dir):
         """Writes ADDRESSES: each pod's, node's and service's IPs, as the cluster has them now ("addresses"), and each
         service's backend IPs, from its EndpointSlices ("backends": "<namespace>/<service>" => IPs). Only warns if it
@@ -972,6 +1096,7 @@ class PrombenchVM:
     REMOTE = "/tmp/paramtrack-testbed"
     # Files under HERE that the testbed reads, besides its code and patches
     FILES = ["modules/caddy/argmatch.Dockerfile", "modules/kube-apiserver/argmatch.Dockerfile",
+             "modules/etcd/argmatch.Dockerfile", "testbeds/prombench/etcd/shipped-config.json",
              "modules/alertmanager/argmatch.Dockerfile", "modules/grafana/argmatch.Dockerfile",
              "testbeds/prombench/alertmanager/shipped-config.yml",
              "testbeds/prombench/grafana/shipped-datasources.yaml", "testbeds/prombench/grafana/shipped-dashboards.yaml",
@@ -1028,20 +1153,6 @@ class PrombenchVM:
                 inputs[f"testbeds/prombench/{d}/{p}"] = f"{HERE}/testbeds/prombench/{d}/{p}"
         for d in self.FILES:
             inputs[d] = f"{HERE}/{d}"
-    def fake_webserver_client(self, out_dir):
-        """Starts the workload's fake-webserver client (testbeds/prombench/fake_webserver_client.py): from outside the
-        cluster (this machine), through Caddy's NodePort on a node's IP, to the fake-webservers' Ingress (patch 0103),
-        for the whole workload"""
-        ip = upstream.kubectl("get", "nodes", "-o", "jsonpath={.items[0].status.addresses[?(@.type=='InternalIP')]"
-                              ".address}").strip()
-        port = upstream.kubectl("-n", CaddyController.NS, "get", CaddyController.SERVICE, "-o",
-                                "jsonpath={.spec.ports[?(@.port==80)].nodePort}").strip()
-        url = f"http://{ip}:{port}/fake-webserver/metrics"
-        say(f"fake-webserver client: {url}")
-        return popen([sys.executable, f"{HERE}/testbeds/prombench/fake_webserver_client.py", url,
-                      common.testbed_agent("fake-webserver-client"), str(self.wait)],
-                     stdout=open(f"{out_dir}/fake-webserver-client.log", "w"), stderr=subprocess.STDOUT)
-
         args = ["python3", "testbeds.py", "--out", "out", "--wait", str(self.wait)]
         dirs = {}
         for name, m in sorted(modules.items()):
@@ -1066,7 +1177,7 @@ class PrombenchVM:
                 os.makedirs(os.path.dirname(f"{tmp}/{name}"), exist_ok=True)
                 shutil.copy(path, f"{tmp}/{name}")
             for name, path in dirs.items():
-                shutil.copytree(path, f"{tmp}/{name}")
+                shutil.copytree(path, f"{tmp}/{name}", symlinks=True)
             log_command(["tar", "-C", tmp, "-cf", "-", "."] +
                         [f"# {n} = {p}" for n, p in sorted({**inputs, **dirs}.items())])
             tar = subprocess.run(["tar", "-C", tmp, "-cf", "-", "."], capture_output=True, check=True).stdout
