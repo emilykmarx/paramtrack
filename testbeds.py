@@ -18,6 +18,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1127,14 +1128,19 @@ class PrombenchVM:
             if stdout:
                 stdout.seek(0)
                 stdout.truncate()
+            # In its own process group, so that a timeout kills ssh too, not only gcloud: a surviving ssh kept reading
+            # stdin, moving the file offset the next try shares
+            p = subprocess.Popen(cmd, stdin=stdin, stdout=stdout or subprocess.PIPE, stderr=subprocess.PIPE,
+                                 start_new_session=True)
             try:
-                p = subprocess.run(cmd, stdin=stdin, stdout=stdout or subprocess.PIPE, stderr=subprocess.PIPE,
-                                   timeout=timeout)
-                code, err = p.returncode, p.stderr.decode(errors="replace").strip()
+                out, err = p.communicate(timeout=timeout)
+                code, err = p.returncode, err.decode(errors="replace").strip()
             except subprocess.TimeoutExpired:
+                os.killpg(p.pid, signal.SIGKILL)
+                p.communicate()
                 code, err = 255, f"timed out after {timeout}s"
             if code == 0:
-                return None if stdout else p.stdout.decode(errors="replace")
+                return None if stdout else out.decode(errors="replace")
             if code != 255:
                 raise RuntimeError(f"exit {code} on {self.vm}: {command}\n{err[-2000:]}")
             if time.time() - start > self.GIVE_UP:
@@ -1172,18 +1178,38 @@ class PrombenchVM:
                 if path:
                     dirs[f"inputs/{name}/{root}/files"] = path
                     args += ["--files", f"{name}:{root}=inputs/{name}/{root}/files"]
+        # Reattach to a run of the same inputs that started on the VM and whose outputs weren't fetched yet (e.g. after
+        # this machine lost its ssh access mid-run): skip the copy, and the start below is skipped too
+        digest = _inputs_digest(inputs, dirs, args)
+        state = self.ssh(f"cat {self.REMOTE}/inputs.sha256 2>/dev/null; [ -e {self.REMOTE}/out/testbed.log ] && "
+                         f"echo started; [ -e {self.REMOTE}/fetched ] && echo fetched; true", timeout=120).split()
+        if digest in state and "started" in state and "fetched" not in state:
+            say(f"reattaching to the run of these inputs already on {self.vm}")
+        else:
+            self.copy_inputs(inputs, dirs, digest)
+        self.start_and_fetch(out_dir, modules, args)
+
+    def copy_inputs(self, inputs, dirs, digest):
+        """Copy the run's inputs (VM path => local path; dirs: whole directories) to the VM's REMOTE, with their
+        digest in REMOTE/inputs.sha256"""
         with tempfile.TemporaryDirectory() as tmp:
             for name, path in inputs.items():
                 os.makedirs(os.path.dirname(f"{tmp}/{name}"), exist_ok=True)
                 shutil.copy(path, f"{tmp}/{name}")
             for name, path in dirs.items():
                 shutil.copytree(path, f"{tmp}/{name}", symlinks=True)
-            log_command(["tar", "-C", tmp, "-cf", "-", "."] +
-                        [f"# {n} = {p}" for n, p in sorted({**inputs, **dirs}.items())])
-            tar = subprocess.run(["tar", "-C", tmp, "-cf", "-", "."], capture_output=True, check=True).stdout
-        say(f"copying inputs to {self.vm}")
-        self.ssh(f"rm -rf {self.REMOTE} && mkdir -p {self.REMOTE}/out && tar -C {self.REMOTE} -xf -", timeout=300,
+            # (gzip: the modules' stack logs are over 1 GB together, and plain, they didn't upload within the timeout)
+            cmd = ["tar", "-C", tmp, "-I", "gzip -1", "-cf", "-", "."]
+            log_command(cmd + [f"# {n} = {p}" for n, p in sorted({**inputs, **dirs}.items())])
+            tar = subprocess.run(cmd, capture_output=True, check=True).stdout
+        say(f"copying inputs to {self.vm} ({len(tar) / 1e6:.0f} MB)")
+        # (timeout: at least 200 kB/s; the VM's upload was that slow on 2026-11-22)
+        self.ssh(f"rm -rf {self.REMOTE} && mkdir -p {self.REMOTE}/out && tar -C {self.REMOTE} -xzf - && "
+                 f"echo {digest} > {self.REMOTE}/inputs.sha256", timeout=300 + len(tar) // 200_000,
                  stdin=_bytes_file(tar))
+
+    def start_and_fetch(self, out_dir, modules, args):
+        """Start the run on the VM (unless it started already), follow its log until it exits, and fetch its out/"""
         # Start the run detached on the VM, so that it survives ssh dropping; it writes out/testbed.log and, when it
         # exits, out/exit. The builder image if missing (up to 40 min) + each instrumented module's build (up to 40
         # min) + deploying (if there's no cluster, about 5 min) or loading + up to 10 min to be ready + up to 20 min to
@@ -1220,8 +1246,25 @@ class PrombenchVM:
                 self.ssh(f"set -o pipefail; tar -C {self.REMOTE}/out -cf - . | zstd -q -T0 -3", timeout=900, stdout=f)
             run(["tar", "-C", out_dir, "--zstd", "-xf", f"{out_dir}/.outputs.tar.zst"], timeout=300)
             os.remove(f"{out_dir}/.outputs.tar.zst")
+            self.ssh(f"touch {self.REMOTE}/fetched", timeout=120)
         if code != 0:
             raise RuntimeError(f"testbed on {self.vm} exited {code}; see {out_dir}/testbed.log")
+
+
+def _inputs_digest(inputs, dirs, args):
+    """A sha256 of a VM run's inputs (as Prombench's VM run copies them: path => local file; dirs: path => local
+    directory, symlinks as their targets) and its command"""
+    h = hashlib.sha256(json.dumps(args).encode())
+    files = dict(inputs)
+    for name, path in dirs.items():
+        for root, ds, fs in os.walk(path):
+            ds.sort()
+            for f in sorted(fs) + [d for d in ds if os.path.islink(f"{root}/{d}")]:
+                files[f"{name}/{os.path.relpath(f'{root}/{f}', path)}"] = f"{root}/{f}"
+    for name, path in sorted(files.items()):
+        h.update(f"\0{name}\0".encode())
+        h.update(os.readlink(path).encode() if os.path.islink(path) else open(path, "rb").read())
+    return h.hexdigest()
 
 
 def _bytes_file(data):
