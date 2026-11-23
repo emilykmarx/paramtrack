@@ -52,13 +52,20 @@ the line's path equals the event's concrete path (a sent request's request_id pa
 req.URL.Path; never the receiver's route pattern), or matches it as a route pattern: match_messages.pattern_matches,
 whose docstring lists what's special in a pattern (`{x}`, `{x...}`, `:name`, a trailing `/`, ...).
 
-It writes, per made-up api_id, the real api_ids it replaced, the modules they were in, and the
-labels of those messages (as label_keys.csv labels them: argmatch-labels' join.py, from contexttrack's message_graph,
-normalized; without the "paths" field, and with the real api_id) to <--out without .csv>.api_ids.md.
+Usage: python3 unmatched_messages.py --run <paramtrack --out dir> --out <dir> [--api-ids <file>] [--external <file>]
 
-Usage: python3 unmatched_messages.py --run <paramtrack --out dir> --out <file.csv> [--api-ids <file>] [--external <file>]
-writes every type row (matched ones too) to the CSV, and the unmatched ones, per module, to <--out without
-.csv>.unmatched.md.
+Outputs, in the --out directory:
+- all.csv: every type row, matched ones too (match_messages.FIELDS).
+- unexplained.md: the unmatched types whose peer is a module or nothing names (per module that logged them), with
+  their numbers of messages and peer addresses (what the testbed's address snapshot says they are).
+- external.md: the unmatched types whose peer --external or the address snapshot names, per module, by that name.
+- replaced_api_ids.md (with --api-ids): per made-up api_id, the real api_ids it replaced, the modules they were in,
+  and the labels of those messages (as label_keys.csv labels them: argmatch-labels' join.py, from contexttrack's
+  message_graph, normalized; without the "paths" field, and with the real api_id).
+- disambiguated.md: where the api_id decided which module received a sent request: the sent request types for which
+  routing by method and route pattern alone (match_messages.most_specific, per receiving module, as match_requests
+  routes) reaches more receiver types than routing with the api_id too; and those for which the api_id ruled out every
+  receiver type (so they're unmatched).
 """
 
 import argparse
@@ -346,24 +353,26 @@ def describe(row, peer=""):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", required=True, help="a paramtrack run's --out directory (all its modules)")
-    ap.add_argument("--out", required=True, help="CSV of every type row (match_messages.FIELDS)")
+    ap.add_argument("--out", required=True, help="output directory (Outputs above)")
     ap.add_argument("--api-ids", help="file of `<METHOD> <path> => <made-up api_id>` lines (see above)")
     ap.add_argument("--external", help="file of `<glob> => <name>` lines naming external peers (see above)")
     a = ap.parse_args()
     api_ids = ApiIds(read_api_ids(a.api_ids)) if a.api_ids else None
     peers = Peers(a.run, read_globs(a.external) if a.external else [])
-    rows = match(a.run, api_ids, peers.record_server)
-    with open(a.out, "w", newline="") as f:
+    sides = {}
+    rows = match(a.run, api_ids, peers.record_server, sides)
+    os.makedirs(a.out, exist_ok=True)
+    path = f"{a.out}/all.csv"
+    with open(path, "w", newline="") as f:
         w = match_messages.csv.DictWriter(f, fieldnames=match_messages.FIELDS)
         w.writeheader()
         w.writerows(rows)
-    print(f"wrote {a.out}: {len(rows)} type rows; "
+    print(f"wrote {path}: {len(rows)} type rows; "
           + ", ".join(f"{k}: {n}" for k, n in sorted(collections.Counter(r['status'] for r in rows).items())))
 
     if api_ids:
-        listing = f"{a.out[:-len('.csv')] if a.out.endswith('.csv') else a.out}.api_ids.md"  # (as .unmatched.md)
-        api_ids.write(listing, a.api_ids)
-        print(f"wrote {listing}")
+        api_ids.write(f"{a.out}/replaced_api_ids.md", a.api_ids)
+        print(f"wrote {a.out}/replaced_api_ids.md")
 
     by_module = collections.defaultdict(list)
     for row in rows:
@@ -371,31 +380,114 @@ def main():
             by_module[row["snd_components"]].append(row)
         elif row["status"] == "unmatched-receiver":
             by_module[row["rcv_components"]].append(row)
-    prefix = a.out[:-len(".csv")] if a.out.endswith(".csv") else a.out
-    out = [f"# Messages only one side logged ({a.run}" + (f"; --api-ids {a.api_ids}" if a.api_ids else "")
-           + (f"; --external {a.external}" if a.external else "") + ")", "",
-           "Per module that logged them: first the unexplained ones, then the external ones, by the name --external "
-           "gives their peer. Each line a match_messages type (its rows in "
-           f"{os.path.basename(a.out)}), with its number of messages (x<n>), and its peer addresses [host: where a "
-           "sent request went; from: the clients a received request came from], with what the testbed's address "
-           "snapshot says they are.", ""]
+    source = (f"{a.run}" + (f"; --api-ids {a.api_ids}" if a.api_ids else "")
+              + (f"; --external {a.external}" if a.external else ""))
+    how = ("Each line a match_messages type (its rows in all.csv), with its number of messages (x<n>), and its peer "
+           "addresses [host: where a sent request went; from: the clients a received request came from], with what "
+           "the testbed's address snapshot says they are.")
+    unexplained = [f"# Unmatched types with no named peer ({source})", "",
+                   "Messages only one side logged, whose other side is a module (a message between modules that didn't "
+                   "pair) or nothing names; per module that logged them. " + how, ""]
+    external = [f"# Unmatched types with a named peer ({source})", "",
+                "Messages only one side logged, whose other side --external or the testbed's address snapshot names "
+                "(a component that isn't instrumented, or outside the testbed); per module that logged them, by that "
+                "name. " + how, ""]
     if not peers.addresses:
-        out += ["(No address snapshot in this run: IPs aren't named.)", ""]
+        unexplained += ["(No address snapshot in this run: IPs aren't named.)", ""]
+        external += ["(No address snapshot in this run: IPs aren't named.)", ""]
     totals = collections.Counter()
     for module, rs in sorted(by_module.items()):
         groups = collections.defaultdict(list)  # external name (None: unexplained) => lines
         for row in rs:
             name, peer = peers.classify(row)
             groups[name].append("- " + describe(row, peer))
-        unexplained = len(groups.get(None, []))
-        totals["unexplained"] += unexplained
-        totals["external"] += len(rs) - unexplained
-        out += [f"## {module}: {len(rs)} unmatched type(s), {unexplained} unexplained", ""]
-        for name in sorted(groups, key=lambda n: (n is not None, n or "")):
-            out += [f"### {'Unexplained' if name is None else 'External: ' + name} ({len(groups[name])})", ""]
-            out += groups[name] + [""]
-    open(f"{prefix}.unmatched.md", "w").write("\n".join(out))
-    print(f"wrote {prefix}.unmatched.md: {totals['unexplained']} unexplained, {totals['external']} external")
+        n_unexplained = len(groups.get(None, []))
+        totals["unexplained"] += n_unexplained
+        totals["external"] += len(rs) - n_unexplained
+        if n_unexplained:
+            unexplained += [f"## {module} ({n_unexplained})", ""] + groups[None] + [""]
+        if len(rs) - n_unexplained:
+            external += [f"## {module} ({len(rs) - n_unexplained})", ""]
+            for name in sorted(n for n in groups if n is not None):
+                external += [f"### {name} ({len(groups[name])})", ""] + groups[name] + [""]
+    open(f"{a.out}/unexplained.md", "w").write("\n".join(unexplained))
+    open(f"{a.out}/external.md", "w").write("\n".join(external))
+    print(f"wrote {a.out}/unexplained.md ({totals['unexplained']} types), {a.out}/external.md "
+          f"({totals['external']} types)")
+
+    made_up = {m for _, _, m in api_ids.lines} if api_ids else set()
+    n = write_disambiguated(f"{a.out}/disambiguated.md", sides, made_up, source)
+    print(f"wrote {a.out}/disambiguated.md: {n[0]} sent request types narrowed by the api_id, {n[1]} with every "
+          "receiver ruled out")
+
+
+# match_requests' settings as build_rows uses them here (match)
+ROUTING = {"loopback_within": True} if "loopback_within" in match_messages.match_requests.__code__.co_varnames else {}
+
+
+def write_disambiguated(path, sides, made_up, source):
+    """disambiguated.md (Outputs above); returns how many sent request types were narrowed and how many had every
+    receiver type ruled out"""
+    snd, rcv = sides["snd_req"], sides["rcv_req"]
+
+    def without_api_ids(side):  # (a copy of a Side with every type's api_id blanked; type => its originals)
+        out, of = match_messages.Side(side.name), collections.defaultdict(list)
+        for t, n in side.n.items():
+            b = ("",) + t[1:]
+            of[b].append(t)
+            out.n[b] += n
+            out.components[b] |= side.components[t]
+            out.paths[b] |= side.paths[t]
+            for attr in ("self_sent", "routed"):  # (the matching's per-type sets, where it has them)
+                if t in getattr(side, attr, ()):
+                    getattr(out, attr).add(b)
+        return out, of
+    # Routing by method and pattern alone: match_requests itself, on the types with their api_ids blanked
+    bsnd, _ = without_api_ids(snd)
+    brcv, rcv_of = without_api_ids(rcv)
+    by_route = collections.defaultdict(list)  # blanked sent type => the receiver types it routes to
+    for status, bs, br in match_messages.match_requests(bsnd, brcv, **ROUTING):
+        if status.startswith("matched"):
+            by_route[bs] += rcv_of[br]
+    with_api = collections.defaultdict(list)  # sent type => the receiver types it pairs with
+    for status, s, r in match_messages.match_requests(snd, rcv, **ROUTING):
+        if status.startswith("matched"):
+            with_api[s].append(r)
+
+    def api(a):
+        return f"{a or '(none)'}" + (" (made up)" if a in made_up else "")
+
+    def line(r):
+        return f"    - {';'.join(sorted(rcv.components[r]))}, api_id {api(r[0])}: `{r[3]}`"
+    narrowed, ruled_out = [], []
+    for s in sorted(snd.n, key=lambda s: (sorted(snd.components[s]), s[3], s[0])):
+        routed_to = by_route[("",) + s[1:]]
+        kept_r = with_api[s]
+        if not set(routed_to) - set(kept_r):
+            continue
+        head = (f"- sent by {';'.join(sorted(snd.components[s]))}, api_id {api(s[0])}: {s[1]} `{s[3]}`"
+                f" (host {s[2] or '-'}, x{snd.n[s]})")
+        kept = [line(r) for r in kept_r]
+        dropped = [line(r) for r in routed_to if r not in kept_r and r[0] != s[0]]
+        if not dropped:
+            continue
+        if kept_r:
+            narrowed += [head, "  - kept:"] + kept + ["  - ruled out:"] + dropped
+        else:
+            ruled_out += [head, "  - ruled out:"] + dropped
+    out = [f"# Where the api_id decided the receiver ({source})", "",
+           "Sent request types for which routing by method and route pattern alone (match_requests itself, on the "
+           "types with their api_ids blanked) reaches receiver types that the api_id rules out (match_requests pairs "
+           "only equal api_ids). A made-up api_id is one "
+           "--api-ids gave (replaced_api_ids.md).", "",
+           f"## The api_id chose among the receivers ({sum(1 for x in narrowed if x.startswith('- '))})", ""]
+    out += narrowed or ["(none)"]
+    out += ["", f"## The api_id ruled out every receiver: unmatched ({sum(1 for x in ruled_out if x.startswith('- '))})",
+            "", "(A sent request whose path some module routes, under another api_id: an over-narrow or missing "
+            "--api-ids line, or a request that truly went elsewhere.)", ""]
+    out += ruled_out or ["(none)"]
+    open(path, "w").write("\n".join(out) + "\n")
+    return sum(1 for x in narrowed if x.startswith("- ")), sum(1 for x in ruled_out if x.startswith("- "))
 
 
 if __name__ == "__main__":
