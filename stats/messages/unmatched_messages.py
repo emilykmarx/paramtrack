@@ -4,7 +4,8 @@ have, whose other side (the receiver's or the sender's) no module's events have.
 analysis/match_messages.py (its docstring says how messages are reduced to types and paired); this script runs it on
 step 5's events of every module in the run, each module's file as one component, with its loopback_within: a module's
 sent request pairs with a request it received itself only if the request's host is loopback, or it received the
-request from its own IP.
+request from its own IP; and a request to a loopback host pairs with another module's only if both are host-network
+pods on the same node (shared_netns, from the testbed's address snapshot below: e.g. kube-apiserver and etcd).
 
 Most unmatched messages are to or from components that aren't instrumented (etcd, kubelets, endpoints outside the
 testbed, the concrete config's made-up hosts). --external names them, from a file of lines
@@ -329,7 +330,28 @@ def match(run, api_ids=None, on_message=None, sides=None):
                 api_ids.module = module
             match_messages.collect(link, sides, on_message and functools.partial(on_message, module))
     # (each module is one process: it sends to itself only through loopback)
-    return match_messages.build_rows(sides, loopback_within=True)
+    return match_messages.build_rows(sides, loopback_within=True,
+                                     shared_netns=shared_netns(run, module_events(run)))
+
+
+def shared_netns(run, modules):
+    """The groups of modules that share a network namespace: host-network pods on one node, from the testbed's address
+    snapshot (a node's IP names the node and its host-network pods). A pod is a module's if its name, without its node
+    (a static pod's suffix) or its workload's random suffix (Peers.POD_SUFFIX), is the module's name."""
+    path = f"{run}/testbed/{STEP}/addresses.json"  # (testbeds.Prombench.ADDRESSES)
+    groups = []
+    for names in (json.load(open(path)).get("addresses", {}) if os.path.exists(path) else {}).values():
+        nodes = [n[5:] for n in names if n.startswith("node ")]
+        group = set()
+        for n in names:
+            if n.startswith("pod ") and n.endswith(" (host network)"):
+                pod = n[4:-len(" (host network)")].split("/", 1)[1]
+                for node in nodes:
+                    pod = pod.removesuffix(f"-{node}")
+                group |= {m for m in modules if Peers.POD_SUFFIX.sub("", pod) == m or pod == m}
+        if len(group) > 1:
+            groups.append(frozenset(group))
+    return tuple(groups)
 
 
 def describe(row, peer=""):
