@@ -65,7 +65,8 @@ Outputs, in the --out directory:
 - disambiguated.md: where the api_id decided which module received a sent request: the sent request types for which
   routing by method and route pattern alone (match_messages.most_specific, per receiving module, as match_requests
   routes) reaches more receiver types than routing with the api_id too; and those for which the api_id ruled out every
-  receiver type (so they're unmatched).
+  receiver type (so they're unmatched), split by whether the request went to an external endpoint (its peer is named,
+  as in external.md) or not (as in unexplained.md).
 """
 
 import argparse
@@ -416,18 +417,22 @@ def main():
           f"({totals['external']} types)")
 
     made_up = {m for _, _, m in api_ids.lines} if api_ids else set()
-    n = write_disambiguated(f"{a.out}/disambiguated.md", sides, made_up, source)
+    # (an unmatched sent request type's peer, as external.md names it: None if unexplained.md has it)
+    peer = {r["snd_type_id"]: peers.classify(r)[0] for r in rows
+            if r["message"] == "request" and r["status"] == "unmatched-sender"}
+    n = write_disambiguated(f"{a.out}/disambiguated.md", sides, made_up, source, peer)
     print(f"wrote {a.out}/disambiguated.md: {n[0]} sent request types narrowed by the api_id, {n[1]} with every "
-          "receiver ruled out")
+          f"receiver ruled out ({n[2]} of them to an external endpoint)")
 
 
 # match_requests' settings as build_rows uses them here (match)
 ROUTING = {"loopback_within": True} if "loopback_within" in match_messages.match_requests.__code__.co_varnames else {}
 
 
-def write_disambiguated(path, sides, made_up, source):
-    """disambiguated.md (Outputs above); returns how many sent request types were narrowed and how many had every
-    receiver type ruled out"""
+def write_disambiguated(path, sides, made_up, source, peer):
+    """disambiguated.md (Outputs above); peer: unmatched sent request type ID => its peer's name (external.md), None
+    if unexplained. Returns how many sent request types were narrowed, how many had every receiver type ruled out, and
+    how many of those went to an external endpoint"""
     snd, rcv = sides["snd_req"], sides["rcv_req"]
 
     def without_api_ids(side):  # (a copy of a Side with every type's api_id blanked; type => its originals)
@@ -459,7 +464,7 @@ def write_disambiguated(path, sides, made_up, source):
 
     def line(r):
         return f"    - {';'.join(sorted(rcv.components[r]))}, api_id {api(r[0])}: `{r[3]}`"
-    narrowed, ruled_out = [], []
+    narrowed, external, unexplained = [], [], []
     for s in sorted(snd.n, key=lambda s: (sorted(snd.components[s]), s[3], s[0])):
         routed_to = by_route[("",) + s[1:]]
         kept_r = with_api[s]
@@ -474,7 +479,9 @@ def write_disambiguated(path, sides, made_up, source):
         if kept_r:
             narrowed += [head, "  - kept:"] + kept + ["  - ruled out:"] + dropped
         else:
-            ruled_out += [head, "  - ruled out:"] + dropped
+            name = peer.get(f"{snd.name}#{snd.ids[s]}")
+            (external if name else unexplained).extend(
+                [head + (f" to {name}" if name else ""), "  - ruled out:"] + dropped)
     out = [f"# Where the api_id decided the receiver ({source})", "",
            "Sent request types for which routing by method and route pattern alone (match_requests itself, on the "
            "types with their api_ids blanked) reaches receiver types that the api_id rules out (match_requests pairs "
@@ -482,12 +489,22 @@ def write_disambiguated(path, sides, made_up, source):
            "--api-ids gave (replaced_api_ids.md).", "",
            f"## The api_id chose among the receivers ({sum(1 for x in narrowed if x.startswith('- '))})", ""]
     out += narrowed or ["(none)"]
-    out += ["", f"## The api_id ruled out every receiver: unmatched ({sum(1 for x in ruled_out if x.startswith('- '))})",
-            "", "(A sent request whose path some module routes, under another api_id: an over-narrow or missing "
-            "--api-ids line, or a request that truly went elsewhere.)", ""]
-    out += ruled_out or ["(none)"]
+    def count(lines):
+        return sum(1 for x in lines if x.startswith("- "))
+    out += ["", f"## The api_id ruled out every (instrumented) receiver ({count(external) + count(unexplained)})", "",
+            "The sent request type's path is one some module routes, but only under another api_id, so it pairs with "
+            "no receiver type: it's unmatched (all.csv's unmatched-sender).", "",
+            f"### Message went to external endpoint ({count(external)})", "",
+            "Its peer is named (external.md: --external, or the testbed's address snapshot), after \"to\": the request "
+            "went to something that isn't a module (outside the testbed, or a component that isn't instrumented), "
+            "so ruling out the modules' routes was right.", ""]
+    out += external or ["(none)"]
+    out += ["", f"### Message was unmatched ({count(unexplained)})", "",
+            "Its peer isn't named (unexplained.md): it may be a message between modules that the api_id kept apart "
+            "(an over-narrow or missing --api-ids line: check these), or a request to an address nothing names.", ""]
+    out += unexplained or ["(none)"]
     open(path, "w").write("\n".join(out) + "\n")
-    return sum(1 for x in narrowed if x.startswith("- ")), sum(1 for x in ruled_out if x.startswith("- "))
+    return count(narrowed), count(external) + count(unexplained), count(external)
 
 
 if __name__ == "__main__":
