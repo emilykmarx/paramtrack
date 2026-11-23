@@ -57,14 +57,15 @@ SKILL.md's constraint 2 says how to check them. On prombench:
 - **The baseline run** is the testbed's shared one (paramtrack's README, "Use with /concreteconfig", step 1), and
   `scripts/check_labels.py` instruments the same modules. With the controller alone instrumented a check took about 8 minutes, most of it the
   240 s workload (plus a deploy if there's no cluster or it's an older variant).
-- **Labels that depend on timing,** not the config: none known among the five-module baselines: its 142 labels were
-  identical in B6-B9 (../README.md, "Labels that depend on timing"). Candidates if one appears: requests that arrive
-  while the controller restarts, and which Grafana API calls the dashboard viewer happens to make.
-- **Labels only a fresh cluster produces:** the controller's lock lease for storage cleaning: `GET
+- **Labels that depend on timing:** the controller's lock lease for storage cleaning: `GET
   .../namespaces/caddy-system/leases/caddy-lock-storage.clean` answered 404, then `POST .../caddy-system/leases`
-  creating it. On a reused cluster the lease exists already, so a check there lacks both (etcd's skill-run checks,
-  2026-11-22, on the shipped Caddy config, against fresh-cluster baseline B10 `results/runs/2026-11-22-b10`; B9, also
-  fresh, had only the GET).
+  creating it ([varying-labels-2026-11-22.txt](varying-labels-2026-11-22.txt), `count_labels.py --varying` on baseline
+  B10 and etcd's three skill-run checks, all with Caddy on its shipped config; `check_labels.py` reads it). Only B10, a
+  fresh cluster, had both; the checks reused that cluster, where the lease exists already. But a fresh cluster isn't
+  enough: the full run `results/runs/2026-11-22-all6` (fresh) lacked the 404 too, and B9 (fresh) had only the `GET`.
+  Before B10, the five-module baselines' 142 labels were identical in B6-B9 (../README.md, "Labels that depend on
+  timing"). Other candidates if one appears: requests that arrive while the controller restarts, and which Grafana API
+  calls the dashboard viewer happens to make.
 
 paramtrack's testbed leaves the controller running the config it ran, on the instrumented image. When done, put back
 the shipped config (a restart does: the controller loads its generated config, and then `cc_vm.py apply

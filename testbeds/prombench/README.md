@@ -39,7 +39,8 @@ produces: `kube-apiserver/TESTBED.md`.
 
 Across B6-B9, every difference in Alertmanager's, Caddy's, Grafana's and Prometheus' labels follows a testbed change
 (B6's missing alert path, B8's added reloads), and B8, chk-am and B9 have identical labels for all four, so none of
-their labels is known to depend on timing. kube-apiserver's do, also across runs with modules on concrete configs.
+their labels is known to depend on timing. kube-apiserver's do, also across runs with modules on concrete configs; and,
+since the six-module runs of 2026-11-22, Caddy's storage-clean lease (caddy/TESTBED.md).
 
 **After the VM restarts,** Docker may give the kind nodes different IPs, and the API server's manifest keeps the
 control plane's old one (`--advertise-address`), so it restarts in a loop and in-cluster clients get "connection

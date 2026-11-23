@@ -1,0 +1,62 @@
+run 1: /home/emily/projects/config_tracing/paramtrack/results/runs/2026-11-22-b10/kube-apiserver/3-chains/events.jsonl: 612 labels
+run 2: /home/emily/projects/config_tracing/paramtrack/results/etcd/concreteconfig-2026-11-22/work/labels-c1/kube-apiserver/3-chains/events.jsonl: 606 labels
+run 3: /home/emily/projects/config_tracing/paramtrack/results/etcd/concreteconfig-2026-11-22/work/labels-c2/kube-apiserver/3-chains/events.jsonl: 612 labels
+run 4: /home/emily/projects/config_tracing/paramtrack/results/etcd/concreteconfig-2026-11-22/work/labels-c4/kube-apiserver/3-chains/events.jsonl: 606 labels
+638 distinct labels in all; 581 in every run; 57 in only some:
+  runs 2,3,4: Response sent {api_id: k8s.io, method: GET, path: /api/v1/namespaces/default/secrets, code: 403}
+  runs 2,3,4: Request received {api_id: k8s.io, method: GET, path: /api/v1/namespaces/default/secrets}
+  runs 1,3,4: Response sent {api_id: k8s.io, method: GET, path: /api/v1/namespaces/kube-system/configmaps, code: 403}
+  runs 1,3,4: Request received {api_id: k8s.io, method: GET, path: /api/v1/namespaces/kube-system/configmaps}
+  runs 1,2,4: Request sent {api_id: k8s.io, method: GET, path: /api/v1/namespaces/kube-system/limitranges}
+  runs 1,2,4: Request sent {api_id: k8s.io, method: GET, path: /api/v1/namespaces/kube-system/pods/kindnet-<pod>}
+  runs 1,2,4: Request sent {api_id: k8s.io, method: GET, path: /api/v1/namespaces/kube-system/pods/kube-proxy-<pod>}
+  runs 1,2,4: Request sent {api_id: k8s.io, method: GET, path: /api/v1/namespaces/kube-system/resourcequotas}
+  runs 2,3: Response sent {api_id: k8s.io, method: GET, path: /api/v1/namespaces/local-path-storage/configmaps, code: 403}
+  runs 2,3: Request received {api_id: k8s.io, method: GET, path: /api/v1/namespaces/local-path-storage/configmaps}
+  runs 3: Response sent {api_id: k8s.io, method: GET, path: /api/v1/nodes, code: 403}
+  runs 3: Request received {api_id: k8s.io, method: GET, path: /api/v1/nodes}
+  runs 3,4: Response sent {api_id: k8s.io, method: GET, path: /api/v1/persistentvolumeclaims, code: 403}
+  runs 3,4: Request received {api_id: k8s.io, method: GET, path: /api/v1/persistentvolumeclaims}
+  runs 3: Response sent {api_id: k8s.io, method: GET, path: /api/v1/persistentvolumes, code: 403}
+  runs 3: Request received {api_id: k8s.io, method: GET, path: /api/v1/persistentvolumes}
+  runs 3: Response sent {api_id: k8s.io, method: GET, path: /api/v1/pods, code: 403}
+  runs 3: Request received {api_id: k8s.io, method: GET, path: /api/v1/pods}
+  runs 1,3: Response sent {api_id: k8s.io, method: GET, path: /api/v1/replicationcontrollers, code: 403}
+  runs 1,3: Request received {api_id: k8s.io, method: GET, path: /api/v1/replicationcontrollers}
+  runs 3: Response sent {api_id: k8s.io, method: GET, path: /api/v1/services, code: 403}
+  runs 3: Request received {api_id: k8s.io, method: GET, path: /api/v1/services}
+  runs 3: Response sent {api_id: k8s.io, method: GET, path: /apis/apps/v1/replicasets, code: 403}
+  runs 3: Request received {api_id: k8s.io, method: GET, path: /apis/apps/v1/replicasets}
+  runs 1: Response sent {api_id: k8s.io, method: GET, path: /apis/coordination.k8s.io/v1/namespaces/kube-system/leases/kube-controller-manager, code: 403}
+  runs 1: Request received {api_id: k8s.io, method: GET, path: /apis/coordination.k8s.io/v1/namespaces/kube-system/leases/kube-controller-manager}
+  runs 3: Response sent {api_id: k8s.io, method: GET, path: /apis/storage.k8s.io/v1/csinodes, code: 403}
+  runs 3: Request received {api_id: k8s.io, method: GET, path: /apis/storage.k8s.io/v1/csinodes}
+  runs 1: Response sent {api_id: k8s.io, pattern: /api/v1/namespaces/{namespace}/configmaps, method: POST, code: 201}
+  runs 1: Request received {api_id: k8s.io, pattern: /api/v1/namespaces/{namespace}/configmaps, method: POST}
+  runs 1: Response sent {api_id: k8s.io, pattern: /api/v1/namespaces/{namespace}/configmaps/{name}, method: GET, code: 404}
+  runs 1,2,4: Response sent {api_id: k8s.io, pattern: /api/v1/namespaces/{namespace}/pods/{name}, method: DELETE, code: 200}
+  runs 1,4: Response sent {api_id: k8s.io, pattern: /api/v1/namespaces/{namespace}/pods/{name}, method: DELETE, code: 404}
+  runs 1,2,4: Response sent {api_id: k8s.io, pattern: /api/v1/namespaces/{namespace}/pods/{name}, method: DELETE, code: 409}
+  runs 1,2,4: Request received {api_id: k8s.io, pattern: /api/v1/namespaces/{namespace}/pods/{name}, method: DELETE}
+  runs 1: Response sent {api_id: k8s.io, pattern: /api/v1/namespaces/{namespace}/pods/{name}/status, method: PATCH, code: 404}
+  runs 1,3,4: Response sent {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/daemonsets/{name}, method: GET, code: 200}
+  runs 1,3,4: Request received {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/daemonsets/{name}, method: GET}
+  runs 2: Response sent {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/deployments, method: GET, code: 200}
+  runs 2: Request received {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/deployments, method: GET}
+  runs 2: Response sent {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/deployments/{name}, method: PUT, code: 200}
+  runs 2: Request received {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/deployments/{name}, method: PUT}
+  runs 1,3,4: Response sent {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/replicasets/{name}, method: GET, code: 200}
+  runs 1,3,4: Request received {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/replicasets/{name}, method: GET}
+  runs 2: Response sent {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/replicasets/{name}, method: PUT, code: 200}
+  runs 2: Request received {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/replicasets/{name}, method: PUT}
+  runs 1,3,4: Response sent {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/statefulsets/{name}, method: GET, code: 200}
+  runs 1,3,4: Request received {api_id: k8s.io, pattern: /apis/apps/v1/namespaces/{namespace}/statefulsets/{name}, method: GET}
+  runs 1: Response sent {api_id: k8s.io, pattern: /apis/coordination.k8s.io/v1/namespaces/{namespace}/leases/{name}, method: GET, code: 404}
+  runs 2,3,4: Response sent {api_id: k8s.io, pattern: /apis/coordination.k8s.io/v1/namespaces/{namespace}/leases/{name}, method: GET, code: 504}
+  runs 1,2,3: Response sent {api_id: k8s.io, pattern: /apis/storage.k8s.io/v1/csinodes/{name}, method: GET, code: 200}
+  runs 1,2,3: Request received {api_id: k8s.io, pattern: /apis/storage.k8s.io/v1/csinodes/{name}, method: GET}
+  runs 1,2,4: Response received {req.Method: GET, req.URL.Path: /api/v1/namespaces/kube-system/limitranges, resp.StatusCode: 200, api_id: k8s.io}
+  runs 1,2,4: Response received {req.Method: GET, req.URL.Path: /api/v1/namespaces/kube-system/pods/kindnet-<pod>, resp.StatusCode: 200, api_id: k8s.io}
+  runs 1,2,4: Response received {req.Method: GET, req.URL.Path: /api/v1/namespaces/kube-system/pods/kube-proxy-<pod>, resp.StatusCode: 200, api_id: k8s.io}
+  runs 1,2,4: Response received {req.Method: GET, req.URL.Path: /api/v1/namespaces/kube-system/resourcequotas, resp.StatusCode: 200, api_id: k8s.io}
+  runs 2: Response received {req.Method: POST, req.URL.Path: /exec/caddy-system/caddy-caddy-ingress-controller-<pod>/caddy-ingress-controller, resp.StatusCode: 404, api_id: k8s.io}

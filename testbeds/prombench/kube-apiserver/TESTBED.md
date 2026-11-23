@@ -38,3 +38,15 @@ instrumented, configured and reloaded, and which fixtures it gets).
     testbed creating a ConfigMap the cluster doesn't have yet, e.g. Grafana's plugins and alerting ones) and a pod
     `DELETE` answering 404; B9 also a pod `DELETE` answering 409. A check on a reused cluster never has these, so
     compare it with a baseline from a reused cluster.
+
+  Since 2026-11-22 (six modules, etcd instrumented): [varying-labels-2026-11-22.txt](varying-labels-2026-11-22.txt),
+  `count_labels.py --varying` on baseline B10 (`results/runs/2026-11-22-b10`, fresh cluster) and etcd's three
+  skill-run checks (`results/etcd/concreteconfig-2026-11-22/work/labels-c1`, `-c2`, `-c4`, the cluster reused), all
+  with kube-apiserver on its shipped configs. Beyond the groups above: a `kube-system` ConfigMaps list answering 403,
+  a replicaset `PUT`, a lease `GET` answering 504, an exec into Caddy's controller answering 404, and two that only
+  B10 had, a pod status `PATCH` answering 404 and a lease `GET` answering 404. Those two aren't fresh-cluster-only:
+  the full run `results/runs/2026-11-22-all6` (fresh cluster) lacked the first and had the second, as did
+  `2026-11-18-check-all5`. That full run also lacked the API server's `GET`s of the `kindnet` and `kube-proxy`
+  service accounts, which every earlier run had; they come with its lookups of those pods (above), which it lacked
+  too: [varying-labels-2026-11-22-all6.txt](varying-labels-2026-11-22-all6.txt), picked by hand from `--varying` on
+  seven runs, whose other differences are config and testbed changes.

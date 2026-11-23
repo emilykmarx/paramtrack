@@ -1,0 +1,7 @@
+run 1: /home/emily/projects/config_tracing/paramtrack/results/runs/2026-11-22-b10/caddy/3-chains/events.jsonl: 152 labels
+run 2: /home/emily/projects/config_tracing/paramtrack/results/etcd/concreteconfig-2026-11-22/work/labels-c1/caddy/3-chains/events.jsonl: 150 labels
+run 3: /home/emily/projects/config_tracing/paramtrack/results/etcd/concreteconfig-2026-11-22/work/labels-c2/caddy/3-chains/events.jsonl: 150 labels
+run 4: /home/emily/projects/config_tracing/paramtrack/results/etcd/concreteconfig-2026-11-22/work/labels-c4/caddy/3-chains/events.jsonl: 150 labels
+152 distinct labels in all; 150 in every run; 2 in only some:
+  runs 1: Request sent {api_id: k8s.io, method: POST, path: /apis/coordination.k8s.io/v1/namespaces/caddy-system/leases}
+  runs 1: Response received {req.Method: GET, req.URL.Path: /apis/coordination.k8s.io/v1/namespaces/caddy-system/leases/caddy-lock-storage.clean, resp.StatusCode: 404, api_id: k8s.io}

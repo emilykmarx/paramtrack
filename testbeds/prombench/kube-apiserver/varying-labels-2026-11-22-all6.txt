@@ -1,0 +1,13 @@
+Hand-picked (TESTBED.md, "Labels that depend on timing"): of count_labels.py --varying on these seven runs' kube-apiserver events, only the
+lookups below; the runs' other differences include config and testbed changes, which aren't timing.
+run 1: /home/emily/projects/config_tracing/paramtrack/results/runs/2026-11-17-b9/kube-apiserver/3-chains/events.jsonl: 608 labels
+run 2: /home/emily/projects/config_tracing/paramtrack/results/runs/2026-11-18-check-all5/kube-apiserver/3-chains/events.jsonl: 626 labels
+run 3: /home/emily/projects/config_tracing/paramtrack/results/runs/2026-11-22-b10/kube-apiserver/3-chains/events.jsonl: 612 labels
+run 4: /home/emily/projects/config_tracing/paramtrack/results/etcd/concreteconfig-2026-11-22/work/labels-c1/kube-apiserver/3-chains/events.jsonl: 606 labels
+run 5: /home/emily/projects/config_tracing/paramtrack/results/etcd/concreteconfig-2026-11-22/work/labels-c2/kube-apiserver/3-chains/events.jsonl: 612 labels
+run 6: /home/emily/projects/config_tracing/paramtrack/results/etcd/concreteconfig-2026-11-22/work/labels-c4/kube-apiserver/3-chains/events.jsonl: 606 labels
+run 7: /home/emily/projects/config_tracing/paramtrack/results/runs/2026-11-22-all6/kube-apiserver/3-chains/events.jsonl: 630 labels
+  runs 1,2,3,4,5,6: Request sent {api_id: k8s.io, method: GET, path: /api/v1/namespaces/kube-system/serviceaccounts/kindnet}
+  runs 1,2,3,4,5,6: Request sent {api_id: k8s.io, method: GET, path: /api/v1/namespaces/kube-system/serviceaccounts/kube-proxy}
+  runs 1,2,3,4,5,6: Response received {req.Method: GET, req.URL.Path: /api/v1/namespaces/kube-system/serviceaccounts/kindnet, resp.StatusCode: 200, api_id: k8s.io}
+  runs 1,2,3,4,5,6: Response received {req.Method: GET, req.URL.Path: /api/v1/namespaces/kube-system/serviceaccounts/kube-proxy, resp.StatusCode: 200, api_id: k8s.io}
