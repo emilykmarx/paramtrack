@@ -20,7 +20,8 @@ Edges, X -> Y (between atoms, so between the nodes they're in):
   external, X a request M sent and Y the response M received to it.
 
 A path follows edges and, while it stays in one module, stays in one request there: all that module's messages on
-the stretch share a context ID (decision 7: transition).
+the stretch share a context ID (decision 7: transition); a call out to another module and back, through its
+response, is still that request.
 
 Prints every maximal path (from a node with no predecessor, or any node of a cycle nothing enters, until it can't go on
 without repeating a node) of at least --min-length nodes, longest first, a line each: <length>: <node> ==> <node> ==>
@@ -407,15 +408,28 @@ def stretch_sides(g, u, v):
 
 def transition(g, u, v, state):
     """Decision 7's state after the edge u -> v, given the state u was reached with (None at a path's start): (the
-    side v is left through, the (module, context ID)s the messages of this module stretch share), None if unchecked,
-    or False if they share none. A stretch is the messages one module handles in a row: it goes on while each edge
-    enters a message through the same side (module and side) the previous edge left it through"""
+    side v is left through, the (module, context ID)s the messages of this module stretch share, the calls out
+    pending), None if unchecked, or False if they share none. A stretch is the messages one module handles in a row:
+    it goes on while each edge enters a message through the same side (module and side) the previous edge left it
+    through. A stretch that ends with the module sending a request to another module is a call out: it's set aside
+    (pushed: (module, its shared IDs)), and when the path comes back to that module through a response, the stretch
+    resumes from it (popped), as one request's still, rather than restarting"""
     sides = stretch_sides(g, u, v) if CONTEXT_PATHS else None
     if not sides:
         return None
     enter, leave, cu, cv = sides
-    shared = (state[1] if state and state[0] == enter else cu) & cv
-    return (leave, shared) if shared else False
+    calls = state[2] if state else ()
+    if state and state[0] == enter:
+        base = state[1]
+    else:
+        if state and state[0][1] == "snd" and u.message == "request":
+            calls += ((state[0][0], state[1]),)
+        if enter[1] == "rcv" and u.message == "response" and calls and calls[-1][0] == enter[0]:
+            base, calls = calls[-1][1] & cu, calls[:-1]
+        else:
+            base = cu
+    shared = base & cv
+    return (leave, shared, calls) if shared else False
 
 
 def maximal_paths(g):
@@ -457,7 +471,7 @@ def ancestors(g, n):
             st = back(g, u, v, state)
             if st is False:
                 continue
-            if any(st == s or (st and s and st[0] == s[0] and st[1] <= s[1]) for s in seen[u]):
+            if any(st == s or (st and s and st[0] == s[0] and st[2] == s[2] and st[1] <= s[1]) for s in seen[u]):
                 continue
             seen[u].append(st)
             out.add(u)
@@ -467,13 +481,25 @@ def ancestors(g, n):
 
 
 def back(g, u, v, state):
-    """transition, backwards: the state u is reached with from the state v is (None at the end node), or False"""
+    """transition, backwards: the state u is reached with from the state v is (None at the end node), or False. A
+    call out, backwards: a stretch that begins with the module receiving a response from another module is set
+    aside, and resumes when the path, going back, reaches the module's request"""
     sides = stretch_sides(g, u, v)
     if not sides:
         return None
     enter, leave, cu, cv = sides
-    shared = cu & (state[1] if state and state[0] == leave else cv)
-    return (enter, shared) if shared else False
+    calls = state[2] if state else ()
+    if state and state[0] == leave:
+        base = state[1]
+    else:
+        if state and state[0][1] == "rcv" and v.message == "response":
+            calls += ((state[0][0], state[1]),)
+        if leave[1] == "snd" and v.message == "request" and calls and calls[-1][0] == leave[0]:
+            base, calls = calls[-1][1] & cv, calls[:-1]
+        else:
+            base = cv
+    shared = cu & base
+    return (enter, shared, calls) if shared else False
 
 
 def add_args(ap):
