@@ -76,7 +76,9 @@ def main():
         for i, (p, new) in enumerate(ps, 1):
             lines += ["", f"{length}.{i} route: " + route_text(route(p)),
                       f"    ({new} of {length} messages not in an earlier sample)"]
-            lines += [f"    {mp.label(n)}" for n in p]
+            for j, n in enumerate(p):
+                via = mp.via_text(g, p[j - 1], n) if j else ""
+                lines += ([f"      [{via}]"] if via else []) + [f"    {mp.label(n)}"]
         lines.append("")
     open(a.out, "w").write("\n".join(lines))
     print(f"wrote {a.out}: {sum(len(ps) for ps in picked.values())} paths")
