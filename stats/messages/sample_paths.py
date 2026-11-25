@@ -57,6 +57,16 @@ def sample(paths, per_length):
     return out
 
 
+def path_lines(g, p):
+    """A path's messages, a line each (mp.label), an edge's annotations (decision 8: mp.via_text) on an indented
+    [...] line before the message it leads to"""
+    lines = []
+    for j, n in enumerate(p):
+        via = mp.via_text(g, p[j - 1], n) if j else ""
+        lines += ([f"      [{via}]"] if via else []) + [f"    {mp.label(n)}"]
+    return lines
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mp.add_args(ap)
@@ -76,9 +86,7 @@ def main():
         for i, (p, new) in enumerate(ps, 1):
             lines += ["", f"{length}.{i} route: " + route_text(route(p)),
                       f"    ({new} of {length} messages not in an earlier sample)"]
-            for j, n in enumerate(p):
-                via = mp.via_text(g, p[j - 1], n) if j else ""
-                lines += ([f"      [{via}]"] if via else []) + [f"    {mp.label(n)}"]
+            lines += path_lines(g, p)
         lines.append("")
     open(a.out, "w").write("\n".join(lines))
     print(f"wrote {a.out}: {sum(len(ps) for ps in picked.values())} paths")

@@ -3,8 +3,9 @@
 
 A node is a message between two endpoints, annotated with sender => receiver: a group of atoms, an atom being one
 type row of unmatched_messages.py's matching (match_messages: a sent type and the received type it pairs with; a type
-only one side logged has its other side named by --external, as in unmatched_messages.py) and one concrete (method,
-path) its events have. The grouping starts from the rows between the same sender and receiver that share a label on
+only one side logged has its other side named by --external, as in unmatched_messages.py; rows that differ only in
+their types' host count as one, as the host isn't used for matching) and one concrete (method, path) its events have.
+The grouping starts from the rows between the same sender and receiver that share a label on
 either side (merge; a side's labels are contexttrack's, message_graph.py's _label_fields on the side's events, so e.g.
 the requests Caddy proxies to Grafana under one route pattern start as one group), and splits a group's concrete
 paths apart when their edges differ (refine), as the grouping decisions below say. An atom's concrete path is its
@@ -27,7 +28,7 @@ response, is still that request.
 
 Prints every maximal path (from a node with no predecessor, or any node of a cycle nothing enters, until it can't go on
 without repeating a node) of at least --min-length nodes, longest first, a line each: <length>: <node> ==> <node> ==>
-...; an edge with annotations (decision 8) ==[<module> received <paths>; <module> sent <paths>]==>; a message
+...; an edge with annotations (decision 8) ==[<module> received the previous message as <paths>; <module> sent the next message as the response to <paths>]==> (via_text: the paths, or how many); a message
 node is (label)
 <sender> => <receiver> req|resp <method> [<code>]: {<sender's labels>} => {<receiver's labels>}
 each label its route pattern or path (a Caddy pattern without its path=), {} for a side no module logged; when both
@@ -187,13 +188,26 @@ def build(run, api_ids=None, external=(), params=False):
     def row_type(i, side):  # (row i's type on a side, or None)
         return protos[i][3] if side.startswith("snd") else protos[i][4]
 
+    # Rows that differ only in their types' host are one row for the atoms: the host isn't used for matching
+    # (match_messages' docstring) and is run-specific (an address), so it mustn't keep messages apart. canon[i]: the
+    # first such row, which stands for them all (same_rows[canon[i]])
+    def no_host(t):  # (a request type (api_id, method, host, path) without its host; a response's, its request's)
+        if t is None or len(t) == 3:
+            return t and (t[0], t[1], no_host(t[2]))
+        return (t[0], t[1], t[3])
+    canon, first, same_rows = [], {}, collections.defaultdict(list)
+    for i, p in enumerate(protos):
+        canon.append(first.setdefault((p[0], p[1], p[2], no_host(p[3]), no_host(p[4])), i))
+        same_rows[canon[i]].append(i)
+
     # Atoms: (row, (method, path)), the concrete paths of a row's client-side events (one, as the client's type has
-    # its path), or of its server-side events when the client isn't logged
-    rows_of = collections.defaultdict(list)  # (side, type) => rows
+    # its path), or of its server-side events when the client isn't logged; a row being its canon (the rows that
+    # differ from it only in host: their paths too)
+    rows_of = collections.defaultdict(list)  # (side, type) => rows (canon)
     for i, p in enumerate(protos):
         for side in (CLIENT[p[0]], SERVER[p[0]]):
-            if row_type(i, side):
-                rows_of[(side, row_type(i, side))].append(i)
+            if row_type(i, side) and canon[i] not in rows_of[(side, row_type(i, side))]:
+                rows_of[(side, row_type(i, side))].append(canon[i])
     of_type = collections.defaultdict(set)  # (side, type) => its events' (method, path)s
     for _, side, typ, _, mp, _ in events:
         of_type[(side, typ)].add(mp)
@@ -201,7 +215,8 @@ def build(run, api_ids=None, external=(), params=False):
     for i, p in enumerate(protos):
         side = CLIENT[p[0]] if row_type(i, CLIENT[p[0]]) else SERVER[p[0]]
         atom_side.append(side)
-        paths_of.append(of_type[(side, row_type(i, side))] or {(None, None)})
+        paths_of.append(set().union(*(of_type[(side, row_type(j, side))] for j in same_rows[i])) or {(None, None)}
+                        if canon[i] == i else set())
 
     def atoms_of(side, typ, mp):
         """An event's atoms, each with the event's concrete path as an annotation when the atoms' paths are the other
@@ -220,8 +235,13 @@ def build(run, api_ids=None, external=(), params=False):
     d = {"ids": collections.defaultdict(set), "exchanges": collections.defaultdict(set)}
     by_cid = collections.defaultdict(lambda: collections.defaultdict(set))  # module => cid => keys
     cids = collections.defaultdict(set)  # (atom, "snd" or "rcv") => (module, cid)
+    # (module, side, concrete path) => the route patterns (or paths) of the types its events annotate edges with
+    # (decision 8: via_text): a received request's, a sent response's request's
+    via_patterns = collections.defaultdict(set)
     for module, side, typ, cid, mp, _ in events:
         for a, via in atoms_of(side, typ, mp):
+            if via:
+                via_patterns[(module, side, mp[1])].add(typ[3] if side == "rcv_req" else typ[2][3])
             if cid:
                 key = (SIDE_KIND[side], a, module, via)
                 d["ids"][key].add(cid)
@@ -243,8 +263,8 @@ def build(run, api_ids=None, external=(), params=False):
         side, typ = ("rcv_req", p[3][2]) if p[3] else ("snd_req", p[4][2])
         for j in rows_of[(side, typ)]:
             if (protos[j][1], protos[j][2]) == (p[2], p[1]):
-                for mp in paths_of[i] & paths_of[j]:
-                    request_of[(i, mp)].add((j, mp))
+                for mp in paths_of[canon[i]] & paths_of[j]:
+                    request_of[(canon[i], mp)].add((j, mp))
     atoms = [(i, mp) for i in range(len(protos)) for mp in paths_of[i]]
 
     # Each atom's parameters (param_cells), on each side its module logged
@@ -263,9 +283,9 @@ def build(run, api_ids=None, external=(), params=False):
                                                     SERVER[msg] if msg == "request" else CLIENT[msg])):
                 # (a side whose concrete paths aren't the atom's: its parameters by its own paths, annotated: 8)
                 cross = ev_side != atom_side[a[0]] and not RECEIVER_SPLITS
-                t = row_type(a[0], ev_side)
+                ts = {row_type(j, ev_side) for j in same_rows[a[0]]} - {None}
                 for module in modules.split(";"):
-                    for q in (of_type[(ev_side, t)] if cross and t else [a[1]]):
+                    for q in (set().union(*(of_type[(ev_side, t)] for t in ts)) if cross and ts else [a[1]]):
                         for c in cells.get((module, kind) + q + (code,), ()):
                             out[side].add((module,) + c)
                             if cross:
@@ -288,7 +308,7 @@ def build(run, api_ids=None, external=(), params=False):
         members[block[a]].append(a)
     node_of, nodes_of = {}, collections.defaultdict(list)
     for b, ats in members.items():
-        rs = sorted({i for i, _ in ats})
+        rs = sorted({j for i, _ in ats for j in same_rows[i]})
         msg, snd, rcv = protos[rs[0]][:3]
         split_ = len(parts[initial[rs[0]]]) > 1
         n = Node(msg, snd, rcv, frozenset(protos[i][3] for i in rs if protos[i][3]),
@@ -302,6 +322,8 @@ def build(run, api_ids=None, external=(), params=False):
                 if row_type(i, side) and n not in nodes_of[(side, row_type(i, side))]:
                     nodes_of[(side, row_type(i, side))].append(n)
 
+    # (a Node is the graph's key for its block: two blocks with equal Nodes would silently become one node)
+    assert len(set(node_of.values())) == len(members), "two groups of atoms made the same Node"
     g = nx.DiGraph(rows=rows, unmatched=unmatched, refine_log=refine_log, node_of=node_of, protos=protos)
     g.add_nodes_from(node_of.values())
     for a, b, (module, va, vb) in edges:
@@ -322,7 +344,10 @@ def build(run, api_ids=None, external=(), params=False):
         if ts is not None:
             c[1] = ts if c[1] is None else min(c[1], ts)
             c[2] = ts if c[2] is None else max(c[2], ts)
-    g.graph["events"], g.graph["nodes_of"] = stats, dict(nodes_of)
+    g.graph["events"], g.graph["nodes_of"], g.graph["via_patterns"] = stats, dict(nodes_of), dict(via_patterns)
+    g.graph["own_paths"] = collections.defaultdict(set)  # node => its atoms' concrete paths (its own: annotations)
+    for a, n in node_of.items():
+        g.graph["own_paths"][n].add(a[1][1])
     g.graph["cids"] = collections.defaultdict(set)
     for (a, side), cs in cids.items():
         g.graph["cids"][(node_of[a], side)] |= cs
@@ -393,16 +418,20 @@ def refine(atoms, protos, block, edges, request_of, atom_params, log=None):
 SHOW_PATHS = 5  # (label: the patterns or paths shown per side; the rest are counted)
 
 
+def field(lab, *names):
+    """A label's first non-empty field of names"""
+    f = dict(lab)
+    return next((f[k] for k in names if f.get(k)), None)
+
+
+def side_paths(labs):
+    """A side's labels' patterns or paths, sorted"""
+    return sorted({field(lab, "pattern", "path", "req.URL.Path") for lab in labs} - {None})
+
+
 def label(n):
     """A node as the docstring says: <sender> => <receiver> req|resp <method> [<code>]: {<sender's labels>} =>
     {<receiver's labels>}"""
-    def field(lab, *names):
-        f = dict(lab)
-        return next((f[k] for k in names if f.get(k)), None)
-
-    def paths(labs):  # (a side's patterns or paths, sorted)
-        return sorted({field(lab, "pattern", "path", "req.URL.Path") for lab in labs} - {None})
-
     def show(ps):  # (at most SHOW_PATHS of them; one without braces)
         if len(ps) == 1:
             return ps[0].removeprefix("path=")
@@ -412,7 +441,7 @@ def label(n):
     method = "/".join(sorted({field(lab, "method", "req.Method") for lab in labs} - {None}))
     code = "/".join(sorted({field(lab, "code", "resp.StatusCode") for lab in labs} - {None}))
     kind = "req" if n.message == "request" else "resp"
-    sl, rl = paths(n.slabels), paths(n.rlabels)
+    sl, rl = side_paths(n.slabels), side_paths(n.rlabels)
     # (a node split from its label's group: its own concrete paths, since other nodes have the same label)
     own = f" [paths: {show(sorted({p for _, p in n.paths if p}))}]" if n.paths else ""
     return (f"{n.snd} => {n.rcv} {kind} {method}{' ' + code if code and n.message == 'response' else ''}: "
@@ -421,8 +450,12 @@ def label(n):
 
 def via_text(g, u, v):
     """The edge u -> v's annotations (decision 8), or "": the concrete paths, as the edge's module logged them, of its
-    messages whose node's paths are the other side's (another run's): "<module> received <paths>; sent <paths>", at
-    most SHOW_PATHS each"""
+    messages whose node's paths are the other side's (another run's), unless they are just the node's own paths:
+    "<module> received the previous message as <paths>"
+    (u's requests, as its receiver logged them) and "<module> sent the next message as the response to <paths>" (v's
+    responses, as their sender logged them), each its paths if at most
+    SHOW_PATHS, else their count; the count is per route pattern ("N paths under <pattern>") when the node has several
+    patterns on that side (its label shows them, or elides some)"""
     rcvd, sent = collections.defaultdict(set), collections.defaultdict(set)
     for module, va, vb in g.edges[u, v].get("via", ()):
         if va:
@@ -430,12 +463,40 @@ def via_text(g, u, v):
         if vb:
             sent[module].add(vb[1])
 
-    def show(ps):
-        ps = sorted(p for p in ps if p)
-        more = f", ...{len(ps) - SHOW_PATHS} elided" if len(ps) > SHOW_PATHS else ""
-        return ", ".join(ps[:SHOW_PATHS]) + more
-    parts = [f"{m} received {show(rcvd[m])}" for m in sorted(rcvd)] + [f"{m} sent {show(sent[m])}" for m in sorted(sent)]
+    own = g.graph["own_paths"]
+    parts = ([f"{m} received the previous message as {show_paths(g, m, 'rcv_req', rcvd[m], u.rlabels)}"
+              for m in sorted(rcvd) if rcvd[m] != own[u]]
+             + [f"{m} sent the next message as the response to {show_paths(g, m, 'snd_resp', sent[m], v.slabels)}"
+                for m in sorted(sent) if sent[m] != own[v]])
     return "; ".join(parts)
+
+
+def show_paths(g, module, side, ps, labs):
+    """Annotated concrete paths ps (decision 8), logged by module on side, of a node whose labels on that side are
+    labs: the paths if at most SHOW_PATHS, else their count, per route pattern if labs has several"""
+    ps = sorted(p for p in ps if p)
+    if len(ps) <= SHOW_PATHS:
+        return ", ".join(ps)
+    if len(side_paths(labs)) <= 1:
+        return f"{len(ps)} paths"
+    under = collections.Counter(pat for p in ps for pat in g.graph["via_patterns"].get((module, side, p), ()))
+    return ", ".join(f"{n} paths under {pat.removeprefix('path=')}" for pat, n in sorted(under.items()))
+
+
+def param_via_text(g, n, side, param):
+    """The annotation of a node's parameter (decision 8: param_via), or "": the concrete paths, as their module
+    logged them, of the node's messages on a side whose paths aren't the node's: "<module> received this message as
+    <paths>" (a request's receiver) or "<module> sent this message as the response to <paths>" (a response's
+    sender), as show_paths shows them; none for a module whose paths are just the node's own"""
+    by = collections.defaultdict(set)
+    for module, (_, path) in g.graph.get("param_via", {}).get((n, side, param), ()):
+        by[module].add(path)
+    by = {m: ps for m, ps in by.items() if ps != g.graph["own_paths"][n]}
+    if side == "receive":
+        return "; ".join(f"{m} received this message as {show_paths(g, m, 'rcv_req', by[m], n.rlabels)}"
+                         for m in sorted(by))
+    return "; ".join(f"{m} sent this message as the response to {show_paths(g, m, 'snd_resp', by[m], n.slabels)}"
+                     for m in sorted(by))
 
 
 def path_text(g, p):
