@@ -6,7 +6,6 @@
 # namespace, or a node); these lines are for what isn't in it, and for ports that say more than a node's IP.
 
 # kube-apiserver's own dependencies
-127.0.0.1:2379 => <etcd>
 *:10250 => <kubelet>
 # kube-apiserver's fixtures: servers its concrete configs point at (testbeds/prombench/kube-apiserver/fixtures.py)
 %2Fvar%2Frun%2Fparamtrack-kms%2Fkms.socket => <kms-plugin>
