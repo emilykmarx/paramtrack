@@ -1,4 +1,4 @@
-"""Tests for message_paths.py's grouping: GROUPING.md's "Decision 8 by example" (the "hello" example), on synthetic
+"""Tests for message_paths.py's grouping: splitting/SPLITTING.md's "Decision 8 by example" (the "hello" example), on synthetic
 events.
 
 Run from this directory: uv run --with pandas --with networkx --with tabulate --with matplotlib --with pyyaml
@@ -46,7 +46,7 @@ def response_received(cid, path, api_id):
 
 
 def hello(client_paths, responses=False):
-    """GROUPING.md's example: the client sends GET client_paths (two, influenced by its parameters pX and pY); the
+    """splitting/SPLITTING.md's example: the client sends GET client_paths (two, influenced by its parameters pX and pY); the
     server, routing them under /hello/*, logged /hello/1 (while handling it, it sends M1, /msg/1) and /hello/2 (M2,
     /msg/2); backend receives M1 and M2 under /msg/{n}. responses: every request is answered (200), each in its
     request's context. The paths, as sample_paths.py prints them (path_lines, without its heading lines; dedented, a
@@ -79,12 +79,15 @@ SHARED = ("/hello/1", "/hello/2")  # (one shared run: the client logged the serv
 
 
 class HelloExample(unittest.TestCase):
+    """splitting/SPLITTING.md's decision 8 by example: GROUPING "edges" (refine), which it is about"""
+
     def setUp(self):
-        for name in ("RECEIVER_SPLITS", "ENTRY_RESPONSE"):
+        for name in ("GROUPING", "RECEIVER_SPLITS", "ENTRY_RESPONSE"):
             self.addCleanup(setattr, mp, name, getattr(mp, name))
+        mp.GROUPING = "edges"
 
     def test_separate_runs(self):
-        # (decision 8, the default: as GROUPING.md shows) /hello/* splits by the client's parameters, M1 and M2 by
+        # (decision 8, the default: as splitting/SPLITTING.md shows) /hello/* splits by the client's parameters, M1 and M2 by
         # the server's paths; every X/Y => M1/M2 combination, each annotated with the server's path
         mp.RECEIVER_SPLITS = False
         paths, g = hello(SEPARATE)
@@ -107,16 +110,18 @@ client => server req GET: /hello/Y => /hello/* [paths: /hello/Y]
 server => backend req GET: /msg/2 => /msg/{n} [paths: /msg/2]""")
 
     def test_separate_runs_receiver_splits(self):
-        # The server's events match none of the client's paths: they fall back to every atom, unannotated, and M1
-        # and M2, with the same edges in, merge
+        # The server's events match none of the client's paths: they fall back to every atom, and M1 and M2, with
+        # the same edges in, merge; the edges' annotations still pair what the server received with what it sent
         mp.RECEIVER_SPLITS = True
         paths, g = hello(SEPARATE)
         self.assertEqual((g.number_of_nodes(), g.number_of_edges()), (3, 2))
         self.assertEqual(paths, """\
 client => server req GET: /hello/X => /hello/* [paths: /hello/X]
+  [server received the previous message as /hello/1 and sent the next message as /msg/1; server received the previous message as /hello/2 and sent the next message as /msg/2]
 server => backend req GET: {/msg/1, /msg/2} => /msg/{n}
 
 client => server req GET: /hello/Y => /hello/* [paths: /hello/Y]
+  [server received the previous message as /hello/1 and sent the next message as /msg/1; server received the previous message as /hello/2 and sent the next message as /msg/2]
 server => backend req GET: {/msg/1, /msg/2} => /msg/{n}""")
 
     def test_shared_run(self):
@@ -157,37 +162,50 @@ server => backend req GET: /msg/2 => /msg/{n} [paths: /msg/2]""")
 
 
 class Annotations(unittest.TestCase):
-    """via_text: the receiver's paths if at most SHOW_PATHS, else their count, per pattern if the node's receiver
-    side has several"""
+    """via_text: per edge, the concrete paths its module logged the edge's two messages under, paired, for the sides
+    with several paths; one side's alone as a list, or as a count (per pattern if the node has several)"""
 
-    def annotate(self, patterns, received):
-        """The text on an edge out of a node whose receiver labels are patterns, its receiver (server) having received
-        received: {pattern: [paths]}"""
+    def annotate(self, patterns, pairs):
+        """The text on an edge from a client's request (the server's received labels: patterns) to the server's send to
+        a backend, the server having logged pairs: [(the path it received, the path it sent)]"""
         labs = frozenset((("api_id", HELLO), ("pattern", pat), ("method", "GET")) for pat in patterns)
         u = mp.Node("request", "client", "server", frozenset(), frozenset(), frozenset(), labs, frozenset())
         v = mp.Node("request", "server", "backend", frozenset(), frozenset(), frozenset(), frozenset(), frozenset())
-        g = nx.DiGraph(via_patterns={("server", "rcv_req", p): {pat} for pat, ps in received.items() for p in ps},
-                       own_paths={u: {"/hello/X"}, v: {"/msg/1"}})
-        g.add_edge(u, v, via={("server", ("GET", p), None) for ps in received.values() for p in ps})
+        received, sent = {r for r, _ in pairs}, {t for _, t in pairs}
+        pats = {r: next(p for p in patterns if r.startswith(p.rstrip("*"))) for r in received}
+        g = nx.DiGraph(via_patterns={("server", "rcv_req", r): {pats[r]} for r in received},
+                       side_paths={(u, "rcv"): received, (v, "snd"): sent})
+        g.add_edge(u, v, via={("server", ("GET", r), ("GET", t)) for r, t in pairs})
         return mp.via_text(g, u, v)
 
-    def test_own_paths_not_annotated(self):
-        # (the receiver logged just the node's own path: nothing to add)
-        self.assertEqual(self.annotate(["/hello/*"], {"/hello/*": ["/hello/X"]}), "")
+    def test_single_paths_not_annotated(self):
+        # (each side logged one path: nothing the labels don't say)
+        self.assertEqual(self.annotate(["/hello/*"], [("/hello/1", "/msg/1")]), "")
 
-    def test_listed(self):
-        self.assertEqual(self.annotate(["/hello/*"], {"/hello/*": ["/hello/1", "/hello/2"]}),
+    def test_pairs(self):
+        self.assertEqual(self.annotate(["/hello/*"], [("/hello/1", "/msg/1"), ("/hello/2", "/msg/2")]),
+                         "server received the previous message as /hello/1 and sent the next message as /msg/1; "
+                         "server received the previous message as /hello/2 and sent the next message as /msg/2")
+
+    def test_one_side(self):
+        # (the server sent one path: only the received side is named)
+        self.assertEqual(self.annotate(["/hello/*"], [("/hello/1", "/msg/1"), ("/hello/2", "/msg/1")]),
                          "server received the previous message as /hello/1, /hello/2")
 
     def test_counted(self):
         # (the pattern is in the node's label already)
-        self.assertEqual(self.annotate(["/hello/*"], {"/hello/*": [f"/hello/{i}" for i in range(6)]}),
+        self.assertEqual(self.annotate(["/hello/*"], [(f"/hello/{i}", "/msg/1") for i in range(6)]),
                          "server received the previous message as 6 paths")
 
     def test_counted_per_pattern(self):
-        self.assertEqual(self.annotate(["/hello/*", "/bye/*"], {"/hello/*": [f"/hello/{i}" for i in range(4)],
-                                                                "/bye/*": ["/bye/1", "/bye/2"]}),
+        self.assertEqual(self.annotate(["/hello/*", "/bye/*"], [(f"/hello/{i}", "/msg/1") for i in range(4)]
+                                       + [("/bye/1", "/msg/1"), ("/bye/2", "/msg/1")]),
                          "server received the previous message as 2 paths under /bye/*, 4 paths under /hello/*")
+
+    def test_counted_pairs(self):
+        self.assertEqual(self.annotate(["/hello/*"], [(f"/hello/{i}", f"/msg/{i}") for i in range(6)]),
+                         "server received the previous message as 6 paths and sent the next message as 6 paths "
+                         "(6 pairs)")
 
 
 if __name__ == "__main__":

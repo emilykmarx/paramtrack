@@ -6,9 +6,8 @@ node <sender> => <receiver> <label> of a path:
 - direct send: P's root is the sender's, and P has evidence for one of the node's concrete messages as its sender
   logged them (the matrix cell of the node's sent kind, per concrete message: param_cells, message_paths' "params");
 - direct receive: likewise for the receiver and the node's received kind;
-  a direct section of a side whose concrete messages aren't the node's (a request's receiver, a response's sender:
-  GROUPING.md decision 8) was found on that side's own paths, which follow it in parentheses
-  (message_paths.param_via_text);
+  a direct section is followed, in parentheses, by the concrete paths of the node's messages it was found on, when the
+  side has several (message_paths.param_via_text; PATHS.md, "Annotations");
 - indirect: P influences, directly (send or receive), a node from which message_paths' graph has a path to this one,
   as message_paths allows paths (an ancestor of it, on this path or not: message_paths.ancestors).
 """
@@ -45,7 +44,7 @@ def lines_for(pid, path, g):
         for kind in ("send", "receive"):
             out.append(f"    direct {kind} ({len(dr[kind])}):")
             for t in sorted(dr[kind]):
-                via = mp.param_via_text(g, n, kind, t)  # (decision 8: the other side's paths it was found on)
+                via = mp.param_via_text(g, n, kind, t)  # (the concrete paths it was found on: PATHS.md)
                 out.append(f"      {sec(t)}" + (f" ({via})" if via else ""))
         out.append(f"    indirect ({len(ind)}):")
         for t in sorted(ind):

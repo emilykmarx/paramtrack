@@ -5,12 +5,13 @@ A node is a message between two endpoints, annotated with sender => receiver: a 
 type row of unmatched_messages.py's matching (match_messages: a sent type and the received type it pairs with; a type
 only one side logged has its other side named by --external, as in unmatched_messages.py; rows that differ only in
 their types' host count as one, as the host isn't used for matching) and one concrete (method, path) its events have.
-The grouping starts from the rows between the same sender and receiver that share a label on
-either side (merge; a side's labels are contexttrack's, message_graph.py's _label_fields on the side's events, so e.g.
-the requests Caddy proxies to Grafana under one route pattern start as one group), and splits a group's concrete
-paths apart when their edges differ (refine), as the grouping decisions below say. An atom's concrete path is its
-client's (or its server's when no client logged it); the other side's events, from another module and possibly
-another run, don't split it, but annotate its edges with their own concrete paths (decision 8; `via`). A proxied message is two nodes: as
+The grouping is the rows of the same kind between the same sender and receiver that share a label of the server's
+side, i.e. its route pattern (merge, MERGE_LABELS: a request's receiver, a response's sender; by the client's labels
+when the server isn't logged; a side's labels are contexttrack's, message_graph.py's _label_fields on the side's
+events, so e.g. the requests Caddy proxies to Grafana are one group per Grafana route pattern); with GROUPING "edges", a group's concrete paths are split apart when
+their edges differ (refine, splitting/SPLITTING.md). An atom's concrete path is its client's (or its server's when no client
+logged it); the edges and parameters are annotated with the concrete paths they were observed on (`via`, PATHS.md).
+A proxied message is two nodes: as
 the proxy received it, and as the proxy sent it. External endpoints aren't nodes: they appear only as a message's
 sender or receiver.
 
@@ -28,7 +29,8 @@ response, is still that request.
 
 Prints every maximal path (from a node with no predecessor, or any node of a cycle nothing enters, until it can't go on
 without repeating a node) of at least --min-length nodes, longest first, a line each: <length>: <node> ==> <node> ==>
-...; an edge with annotations (decision 8) ==[<module> received the previous message as <paths>; <module> sent the next message as the response to <paths>]==> (via_text: the paths, or how many); a message
+...; an edge with annotations ==[<module> received the previous message as <path> and sent the next message as <path>; ...]==>
+(via_text: which concrete paths the edge was observed on, PATHS.md); a message
 node is (label)
 <sender> => <receiver> req|resp <method> [<code>]: {<sender's labels>} => {<receiver's labels>}
 each label its route pattern or path (a Caddy pattern without its path=), {} for a side no module logged; when both
@@ -69,10 +71,13 @@ def side_labels(ev):
     return tuple(message_graph._label_fields(ev))
 
 
-# Grouping decisions (GROUPING.md, next to this file, by row number): change these to evaluate alternatives.
-# GROUPING picks the grouping itself: "labels" merges every row between the same endpoints that shares a label on a
-# side (merge), as before the decisions; "edges" starts from that and splits it (refine), as the decisions say.
-GROUPING = "edges"
+# Grouping decisions (splitting/SPLITTING.md, by row number): change these to evaluate alternatives.
+# GROUPING picks the grouping itself: "labels" (the default since 2026-11-25) merges every row between the same
+# endpoints that shares a label on a side (merge), and the edges' and parameters' annotations say which concrete paths
+# each was observed on (PATHS.md); "edges" starts from that and splits it (refine), as splitting/SPLITTING.md's decisions 1-6 say.
+GROUPING = "labels"
+MERGE_LABELS = "server"  # merge's labels: "server" (the server's side: a request's receiver, a response's sender; a
+#                          row with no server-side labels, its server being external, by its client's) or "both"
 COMPARE = "containment"  # 1: how two concrete paths' edge sets compare: "containment" (one contains the other) or
 #                          "equality"
 AMBIGUOUS = "alone"  # 2: a path whose edges several incomparable largest edge sets contain: "alone" (its own node:
@@ -97,9 +102,11 @@ SERVER = {"request": "rcv_req", "response": "snd_resp"}
 
 
 def merge(protos):
-    """Today's grouping, refine's starting point: the index of each (message, snd, rcv, stype or None, rtype or
-    None, slabels, rlabels) row's group; rows with the same message, sender and receiver that share a label on either
-    side are one group (union-find)"""
+    """The grouping (refine's starting point, with GROUPING "edges"): the index of each (message, snd, rcv, stype or
+    None, rtype or None, slabels, rlabels) row's group; rows with the same message, sender and receiver that share a
+    label are one group (union-find): a label of the server's side (MERGE_LABELS "server": a request's receiver, a
+    response's sender, so its route pattern; a row whose server isn't logged, by its client's labels), or of either
+    side ("both")"""
     parent = list(range(len(protos)))
 
     def find(i):
@@ -109,7 +116,12 @@ def merge(protos):
         return i
     first = {}
     for i, (msg, snd, rcv, _, _, sl, rl) in enumerate(protos):
-        for key in [(msg, snd, rcv, "s", lab) for lab in sl] + [(msg, snd, rcv, "r", lab) for lab in rl]:
+        if MERGE_LABELS == "server":  # (the server's labels, its route patterns; the client's if it has none)
+            server, client = (rl, sl) if msg == "request" else (sl, rl)
+            keys = [(msg, snd, rcv, "server", lab) for lab in server] or [(msg, snd, rcv, "client", lab) for lab in client]
+        else:
+            keys = [(msg, snd, rcv, "s", lab) for lab in sl] + [(msg, snd, rcv, "r", lab) for lab in rl]
+        for key in keys:
             if key in first:
                 parent[find(i)] = find(first[key])
             else:
@@ -237,13 +249,14 @@ def build(run, api_ids=None, external=(), params=False):
     d = {"ids": collections.defaultdict(set), "exchanges": collections.defaultdict(set)}
     by_cid = collections.defaultdict(lambda: collections.defaultdict(set))  # module => cid => keys
     cids = collections.defaultdict(set)  # (atom, "snd" or "rcv") => (module, cid)
-    # (module, side, concrete path) => the route patterns (or paths) of the types its events annotate edges with
-    # (decision 8: via_text): a received request's, a sent response's request's
+    # (module, side, concrete path) => the route patterns (or paths) of its events' types: a request's, a response's
+    # request's (annotations: show_paths)
     via_patterns = collections.defaultdict(set)
+    atom_side_paths = collections.defaultdict(set)  # (atom, "snd" or "rcv") => the concrete paths its events have
     for module, side, typ, cid, mp, _ in events:
         for a, via in atoms_of(side, typ, mp):
-            if via:
-                via_patterns[(module, side, mp[1])].add(typ[3] if side == "rcv_req" else typ[2][3])
+            via_patterns[(module, side, mp[1])].add(typ[3] if side.endswith("req") else typ[2][3])
+            atom_side_paths[(a, side[:3])].add(mp[1])
             if cid:
                 key = (SIDE_KIND[side], a, module, via)
                 d["ids"][key].add(cid)
@@ -251,11 +264,18 @@ def build(run, api_ids=None, external=(), params=False):
                 by_cid[module][cid].add(key)
                 cids[(a, side[:3])].add((module, cid))
     edges = set()  # (atom, atom, (module, the first's concrete path or None, the second's or None)), within a module
+    # (atom, atom, module) => the concrete paths, (first's, second's), of their events that share a context ID: what
+    # the module logged them under (the edges' annotations: via_text)
+    edge_paths = collections.defaultdict(set)
     for module, by in by_cid.items():
         pairs = {(a, b) for keys in by.values() for a in keys if "received" in a[0] for b in keys if "sent" in b[0]}
         for r, c in pairs:
             if evidence_matrix.shared_ids(d, r, c)[0]:
                 edges.add((r[1], c[1], (module, r[3], c[3])))
+                sent_by_cid = collections.defaultdict(set)
+                for cid, q in d["exchanges"][c]:
+                    sent_by_cid[cid].add(q)
+                edge_paths[(r[1], c[1], module)] |= {(p, q) for cid, p in d["exchanges"][r] for q in sent_by_cid[cid]}
     # A request and its own response, with the same concrete path: the responder's response types name their
     # request's type as it received it; when the responder is external, the client's name it as it sent it
     request_of = collections.defaultdict(set)  # response atom => its request atoms
@@ -271,7 +291,7 @@ def build(run, api_ids=None, external=(), params=False):
 
     # Each atom's parameters (param_cells), on each side its module logged
     atom_params = {}
-    param_via = collections.defaultdict(set)  # (atom, side, param) => its (module, concrete path)s (decision 8)
+    param_via = collections.defaultdict(set)  # (atom, side, param) => the (module, concrete path)s it was found on
     if params or GROUPING == "edges":
         cells = param_cells.table(run)
         sent_kind = {"request": "Request sent", "response": "Response sent"}
@@ -290,8 +310,7 @@ def build(run, api_ids=None, external=(), params=False):
                     for q in (set().union(*(of_type[(ev_side, t)] for t in ts)) if cross and ts else [a[1]]):
                         for c in cells.get((module, kind) + q + (code,), ()):
                             out[side].add((module,) + c)
-                            if cross:
-                                param_via[(a, side, (module,) + c)].add((module, q))
+                            param_via[(a, side, (module,) + c)].add((module, q))
             atom_params[a] = out
 
     # Group the atoms: today's grouping (merge), then, with GROUPING "edges", split it (refine)
@@ -328,12 +347,13 @@ def build(run, api_ids=None, external=(), params=False):
     assert len(set(node_of.values())) == len(members), "two groups of atoms made the same Node"
     g = nx.DiGraph(rows=rows, unmatched=unmatched, refine_log=refine_log, node_of=node_of, protos=protos)
     g.add_nodes_from(node_of.values())
-    for a, b, (module, va, vb) in edges:
+    # (an edge's annotations, "via": (module, the concrete path its module logged the first message under, the
+    # second's), per pair of the module's events that share a context ID: edge_paths)
+    for a, b, (module, _, _) in edges:
         u, v = node_of[a], node_of[b]
         if not g.has_edge(u, v):
             g.add_edge(u, v, via=set())
-        if va or vb:
-            g.edges[u, v]["via"].add((module, va, vb))
+        g.edges[u, v]["via"] |= {(module, p, q) for p, q in edge_paths[(a, b, module)]}
     g.graph["requests_of"] = collections.defaultdict(set)  # response node => its requests' nodes (request_of)
     for a, qs in request_of.items():
         for q in qs:
@@ -349,9 +369,11 @@ def build(run, api_ids=None, external=(), params=False):
             c[1] = ts if c[1] is None else min(c[1], ts)
             c[2] = ts if c[2] is None else max(c[2], ts)
     g.graph["events"], g.graph["nodes_of"], g.graph["via_patterns"] = stats, dict(nodes_of), dict(via_patterns)
-    g.graph["own_paths"] = collections.defaultdict(set)  # node => its atoms' concrete paths (its own: annotations)
-    for a, n in node_of.items():
-        g.graph["own_paths"][n].add(a[1][1])
+    # (node, "snd" or "rcv") => the concrete paths its sender's (receiver's) events have: an annotation names the paths
+    # of a side only when it has several (show_side)
+    g.graph["side_paths"] = collections.defaultdict(set)
+    for (a, side), ps in atom_side_paths.items():
+        g.graph["side_paths"][(node_of[a], side)] |= ps
     g.graph["cids"] = collections.defaultdict(set)
     for (a, side), cs in cids.items():
         g.graph["cids"][(node_of[a], side)] |= cs
@@ -360,8 +382,7 @@ def build(run, api_ids=None, external=(), params=False):
         for a, ps in atom_params.items():
             for side in ps:
                 g.graph["params"][node_of[a]][side] |= ps[side]
-        # (node, "send" or "receive", param) => the (module, concrete path)s it was found on, for a side whose paths
-        # aren't the node's (decision 8)
+        # (node, "send" or "receive", param) => the (module, concrete path)s it was found on (param_via_text)
         g.graph["param_via"] = collections.defaultdict(set)
         for (a, side, prm), vs in param_via.items():
             g.graph["param_via"][(node_of[a], side, prm)] |= vs
@@ -452,54 +473,70 @@ def label(n):
             + (show(sl) if sl == rl else f"{show(sl)} => {show(rl)}") + own)
 
 
-def via_text(g, u, v):
-    """The edge u -> v's annotations (decision 8), or "": the concrete paths, as the edge's module logged them, of its
-    messages whose node's paths are the other side's (another run's), unless they are just the node's own paths:
-    "<module> received the previous message as <paths>"
-    (u's requests, as its receiver logged them) and "<module> sent the next message as the response to <paths>" (v's
-    responses, as their sender logged them), each its paths if at most
-    SHOW_PATHS, else their count; the count is per route pattern ("N paths under <pattern>") when the node has several
-    patterns on that side (its label shows them, or elides some)"""
-    rcvd, sent = collections.defaultdict(set), collections.defaultdict(set)
-    for module, va, vb in g.edges[u, v].get("via", ()):
-        if va:
-            rcvd[module].add(va[1])
-        if vb:
-            sent[module].add(vb[1])
+def as_text(n, which, side):
+    """How an annotation names a node's message: "<module> received|sent the previous|this|next message as [the
+    response to] <paths>" (which: previous, this or next; side: snd or rcv)"""
+    verb = "sent" if side == "snd" else "received"
+    return f"{verb} the {which} message as " + ("the response to " if n.message == "response" else "")
 
-    own = g.graph["own_paths"]
-    parts = ([f"{m} received the previous message as {show_paths(g, m, 'rcv_req', rcvd[m], u.rlabels)}"
-              for m in sorted(rcvd) if rcvd[m] != own[u]]
-             + [f"{m} sent the next message as the response to {show_paths(g, m, 'snd_resp', sent[m], v.slabels)}"
-                for m in sorted(sent) if sent[m] != own[v]])
+
+def show_side(g, n, side):
+    """Whether annotations name the concrete paths of a node's side (snd or rcv): only if it has several"""
+    return len(g.graph["side_paths"].get((n, side), ())) > 1
+
+
+def via_text(g, u, v):
+    """The edge u -> v's annotations, or "": per module (the edge's: u's receiver and v's sender), the concrete paths
+    it logged u's message and v's under ("<module> received the previous message as <path> and sent the next message
+    as <path>", a response's path being its request's: "as the response to <path>"), paired as the edge's atoms are,
+    for the sides that have several paths (show_side); with only one such side, or more than SHOW_PATHS pairs, the
+    paths on each side as show_paths shows them (and how many pairs)"""
+    by = collections.defaultdict(set)
+    for module, va, vb in g.edges[u, v].get("via", ()):
+        by[module].add((va[1] if va and show_side(g, u, "rcv") else None,
+                        vb[1] if vb and show_side(g, v, "snd") else None))
+    parts = []
+    for m in sorted(by):
+        pairs = sorted(pr for pr in by[m] if pr != (None, None))
+        if not pairs:
+            continue
+        rcvd, sent = {a for a, _ in pairs} - {None}, {b for _, b in pairs} - {None}
+        if rcvd and sent and len(pairs) <= SHOW_PATHS:
+            parts += [f"{m} {as_text(u, 'previous', 'rcv')}{a} and {as_text(v, 'next', 'snd')}{b}" for a, b in pairs]
+            continue
+        side_u = "rcv_req" if u.message == "request" else "rcv_resp"
+        side_v = "snd_req" if v.message == "request" else "snd_resp"
+        texts = ([as_text(u, "previous", "rcv") + show_paths(g, m, side_u, rcvd, u.rlabels)] if rcvd else []) + (
+            [as_text(v, "next", "snd") + show_paths(g, m, side_v, sent, v.slabels)] if sent else [])
+        parts.append(f"{m} " + " and ".join(texts) + (f" ({len(pairs)} pairs)" if rcvd and sent else ""))
     return "; ".join(parts)
 
 
 def show_paths(g, module, side, ps, labs):
-    """Annotated concrete paths ps (decision 8), logged by module on side, of a node whose labels on that side are
-    labs: the paths if at most SHOW_PATHS, else their count, per route pattern if labs has several"""
+    """Annotated concrete paths ps, logged by module on side (match_messages' side name), of a node whose labels on
+    that side are labs: the paths if at most SHOW_PATHS, else their count, per route pattern if labs has several"""
     ps = sorted(p for p in ps if p)
     if len(ps) <= SHOW_PATHS:
         return ", ".join(ps)
-    if len(side_paths(labs)) <= 1:
+    if len({field(lab, "pattern") for lab in labs} - {None}) <= 1:
         return f"{len(ps)} paths"
     under = collections.Counter(pat for p in ps for pat in g.graph["via_patterns"].get((module, side, p), ()))
     return ", ".join(f"{n} paths under {pat.removeprefix('path=')}" for pat, n in sorted(under.items()))
 
 
 def param_via_text(g, n, side, param):
-    """The annotation of a node's parameter (decision 8: param_via), or "": the concrete paths, as their module
-    logged them, of the node's messages on a side whose paths aren't the node's: "<module> received this message as
-    <paths>" (a request's receiver) or "<module> sent this message as the response to <paths>" (a response's
-    sender), as show_paths shows them; none for a module whose paths are just the node's own"""
+    """The annotation of a node's parameter, or "": the concrete paths, as their module logged them, of the node's
+    messages it was found on: "<module> received|sent this message as [the response to] <paths>", as show_paths shows
+    them, for a side with several paths (show_side)"""
+    s = "rcv" if side == "receive" else "snd"
+    if not show_side(g, n, s):
+        return ""
     by = collections.defaultdict(set)
     for module, (_, path) in g.graph.get("param_via", {}).get((n, side, param), ()):
         by[module].add(path)
-    by = {m: ps for m, ps in by.items() if ps != g.graph["own_paths"][n]}
-    if side == "receive":
-        return "; ".join(f"{m} received this message as {show_paths(g, m, 'rcv_req', by[m], n.rlabels)}"
-                         for m in sorted(by))
-    return "; ".join(f"{m} sent this message as the response to {show_paths(g, m, 'snd_resp', by[m], n.slabels)}"
+    ms = {"request": {"snd": "snd_req", "rcv": "rcv_req"}, "response": {"snd": "snd_resp", "rcv": "rcv_resp"}}
+    return "; ".join(f"{m} {as_text(n, 'this', s)}"
+                     f"{show_paths(g, m, ms[n.message][s], by[m], n.slabels if s == 'snd' else n.rlabels)}"
                      for m in sorted(by))
 
 
@@ -660,7 +697,7 @@ def add_args(ap):
                          "e.g. --decision COMPARE=equality; repeatable")
 
 
-DECISIONS = ("GROUPING", "COMPARE", "AMBIGUOUS", "REFINE", "EMPTY_MERGES", "RECEIVER_PARAMS", "CONTEXT_PATHS", "ENTRY_RESPONSE",
+DECISIONS = ("GROUPING", "MERGE_LABELS", "COMPARE", "AMBIGUOUS", "REFINE", "EMPTY_MERGES", "RECEIVER_PARAMS", "CONTEXT_PATHS", "ENTRY_RESPONSE",
              "RECEIVER_SPLITS", "SENDER_PARAMS")
 
 
