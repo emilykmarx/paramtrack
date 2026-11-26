@@ -5,7 +5,7 @@ was split):
 - nodes between each pair of modules: nodes whose sender and receiver are two different modules, per (sender,
   receiver), requests and responses;
 - paths: how many maximal paths, the longest, and a histogram of their lengths (all lengths: message_paths.py's
-  --min-length doesn't apply);
+  --min-length doesn't apply), and of how many modules each involves (modules_of);
 - external endpoints in paths: per endpoint, its nodes, how many paths contain one, and the longest;
 - per message type, as each module logged it (the sender's sent type, the receiver's received type: several nodes
   can share one): its events, the time they were observed over (the first event's ts to the last's), and events per
@@ -33,6 +33,11 @@ def endpoints(n, modules):
     """The external endpoints a node has as sender or receiver: those that aren't modules, a name joined with " + "
     (a type with several kinds of peer) split into its names"""
     return {e for end in (n.snd, n.rcv) if not is_module(end, modules) for e in end.split(" + ")}
+
+
+def modules_of(path, modules):
+    """The modules a path involves: its messages' senders and receivers that are modules (a;b: each)"""
+    return {m for n in path for end in (n.snd, n.rcv) for m in end.split(";") if m in modules}
 
 
 def side_label(side, typ, nodes):
@@ -88,9 +93,11 @@ def main():
     # Paths, and the external endpoints on them
     ends = {n: endpoints(n, modules) for n in g}
     lengths = collections.Counter()
+    n_modules = collections.Counter()  # (modules involved, at least 4 messages) => paths
     on_paths = collections.defaultdict(lambda: [0, 0, 0])  # endpoint => [paths, paths of >= 4 messages, longest]
     for p in mp.maximal_paths(g):
         lengths[len(p)] += 1
+        n_modules[(len(modules_of(p, modules)), len(p) >= 4)] += 1
         for e in set().union(*(ends[n] for n in p)):
             c = on_paths[e]
             c[0] += 1
@@ -100,6 +107,15 @@ def main():
     lines += ["## Paths", "", f"- Maximal paths: {total}; longest: {max(lengths) if lengths else 0} messages", "",
               "| length | paths | share |", "|---:|---:|---:|"]
     lines += [f"| {n} | {c} | {c / total:.1%} |" for n, c in sorted(lengths.items())] + [""]
+    long = sum(c for (_, l4), c in n_modules.items() if l4)
+    lines += ["Modules a path involves (its messages' senders and receivers that are modules, not external "
+              "endpoints): paths of all lengths, and of at least 4 messages (message_paths.py's default --min-length).",
+              "", "| modules | paths | share | paths of >= 4 messages | share |", "|---:|---:|---:|---:|---:|"]
+    for k in sorted({k for k, _ in n_modules}):
+        a_, l4 = n_modules[(k, False)] + n_modules[(k, True)], n_modules[(k, True)]
+        lines.append(f"| {k} | {a_} | {a_ / total:.1%} | {l4} | {l4 / long:.1%} |" if long else
+                     f"| {k} | {a_} | {a_ / total:.1%} | {l4} | |")
+    lines.append("")
 
     # External endpoints: how many nodes have each as sender or receiver, and how many paths contain one
     labels = collections.Counter(e for n in g for e in ends[n])
