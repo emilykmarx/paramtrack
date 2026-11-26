@@ -58,7 +58,7 @@ def compute_table(out):
         for root_dir in root_dirs:
             ukeys, _, _, section_of = matches.unambiguous_keys(root_dir)
             fks = {n: {fk for fk in f if fk in ukeys} for n, f in matches.needle_full_keys(root_dir).items()}
-            eligible = evidence_matrix.load_evidence(root_dir)["eligible"]
+            eligible = evidence_matrix.load_eligible(root_dir)["eligible"]
             per_root.append((os.path.basename(root_dir), fks, section_of, eligible))
             kept |= {n for n, f in fks.items() if f}
             config_values |= matches.unambiguous_values(root_dir)[1]

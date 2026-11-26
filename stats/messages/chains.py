@@ -57,6 +57,21 @@ def message_label(label):
     return "{" + ", ".join(f for f in label.strip("{}").split(", ") if not f.startswith("paths: ")) + "}"
 
 
+def concrete_label(event):
+    """An event's message label with its concrete path in place of a route pattern (the grouping message_paths.py starts
+    from: GROUPING.md), normalized as join.py normalizes labels; e.g. a request Caddy received under `["/grafana",
+    "/grafana/*"]` => `{api_id: ..., method: GET, path: /grafana/api/search}`. For an event join.message_labels labelled
+    (which stamps the route patterns this leaves out)."""
+    return join.normalize(join.message_graph._msg_label({**event, "route_pattern": None}))
+
+
+def labelled(events, concrete=False):
+    """(index in events, message label) for the events join.py labels as messages: message_label of its label, or with
+    concrete, concrete_label"""
+    for i, label in join.message_labels(events).items():
+        yield i, concrete_label(events[i]) if concrete else message_label(label)
+
+
 def reduce_label(label):
     """A message label's path or route pattern (e.g. `{api_id: k8s.io, method: GET, path: /api/v1/pods}` =>
     `/api/v1/pods`). Received responses name their path `req.URL.Path` (e.g. `{req.Method: GET, req.URL.Path:
@@ -132,37 +147,38 @@ def short(fn):
 STEP = "5-matches"
 
 
-def message_chains(run, step=STEP, kinds=KINDS):
+def message_chains(run, step=STEP, kinds=KINDS, concrete=False):
     """(kind, message) => the chains of its events in run's <step>/events.jsonl, for messages of the given kinds (the
-    sent ones by default). Sets MODULE and MODULE_FUNCTIONS to the run's module's."""
+    sent ones by default), labelled as labelled() does (concrete: by concrete path). Sets MODULE and MODULE_FUNCTIONS
+    to the run's module's."""
     global MODULE, MODULE_FUNCTIONS
     MODULE = json.load(open(f"{layout.step_dir(run, '2-full-keys')}/settings.json"))["module"] + "/"
     MODULE_FUNCTIONS = tuple(getattr(modules.load(MODULE.rstrip("/")), "CHAIN_FUNCTIONS", (MODULE,)))
     events = read_events(f"{layout.step_dir(run, step)}/events.jsonl")
     chains = collections.defaultdict(list)
-    for i, label in join.message_labels(events).items():
+    for i, label in labelled(events, concrete):
         if events[i]["kind"] in kinds:
-            chains[(events[i]["kind"], message_label(label))].append(chain(events[i]))
+            chains[(events[i]["kind"], label)].append(chain(events[i]))
     return chains
 
 
-def message_context_ids(run, step=STEP, kinds=KINDS):
+def message_context_ids(run, step=STEP, kinds=KINDS, concrete=False):
     """(kind, message) => the context IDs of its events in run's <step>/events.jsonl (contexttrack's context_id: the
     request's context, e.g. id:10), for messages of the given kinds, labelled as message_chains does"""
-    return {k: {cid for cid, _ in es} for k, es in message_exchanges(run, step, kinds).items()}
+    return {k: {cid for cid, _ in es} for k, es in message_exchanges(run, step, kinds, concrete).items()}
 
 
-def message_exchanges(run, step=STEP, kinds=KINDS):
+def message_exchanges(run, step=STEP, kinds=KINDS, concrete=False):
     """(kind, message) => its events' (context ID, (req.Method, req.URL.Path)), as message_context_ids. A request and
     its response have the same all three (req.URL.Host is only in the request)"""
     events = read_events(f"{layout.step_dir(run, step)}/events.jsonl")
     out = collections.defaultdict(set)
-    for i, label in join.message_labels(events).items():
+    for i, label in labelled(events, concrete):
         if events[i]["kind"] in kinds:
             cid = (events[i].get("context") or {}).get("context_id")
             if cid:
                 m = events[i].get("message") or {}
-                out[(events[i]["kind"], message_label(label))].add((cid, (m.get("req.Method"), m.get("req.URL.Path"))))
+                out[(events[i]["kind"], label)].add((cid, (m.get("req.Method"), m.get("req.URL.Path"))))
     return out
 
 

@@ -200,12 +200,10 @@ rgba(0,0,0,.15)}#tip .v{font-weight:600}#tip .kv{padding-left:12px}#tip .s{color
 details{margin-top:12px;color:var(--text-secondary)}"""
 
 
-def load_evidence(run):
-    """The matrix's rows and cells, from the run directory (no events): its sections, each section's in-scope keys,
-    eligible keys (section => unambiguous full keys set with a value searched for), evidence ((kind, message) =>
-    section => its unambiguous evidence full keys), via (((kind, message), section) => evidence full key => its
-    matched values), and value_sections (value of an unambiguous key => its sections). A cell has evidence when its
-    evidence keys and the section's eligible keys meet (cells())"""
+def load_eligible(run):
+    """The matrix's rows, from the run directory (no events): its sections, each section's in-scope keys, eligible keys
+    (section => unambiguous full keys set with a value searched for), value_sections (value of an unambiguous key => its
+    sections), and what load_evidence needs: the unambiguous keys, each needle's full keys and each key's section"""
     fkdf = pd.read_csv(f"{layout.step_dir(run, '8-stats')}/full_keys.csv", keep_default_na=False, dtype=str)
     section_of = dict(zip(fkdf.key, fkdf.section))  # in-scope full key => section
     section_keys = fkdf.groupby("section").key.apply(lambda ks: sorted(set(ks))).to_dict()  # section => its keys
@@ -225,22 +223,31 @@ def load_evidence(run):
             eligible[section_of[fk]].add(fk)
         for v in vs:
             value_sections[v].add(section_of[fk])
+    return dict(sections=sections, section_keys=section_keys, eligible=eligible, value_sections=value_sections,
+                unamb_keys=unamb_keys, needle_fks=matches.needle_full_keys(run), section_of=section_of)
 
-    # Evidence: (kind, message) => section => its evidence full keys that are unambiguous
-    needle_fks = matches.needle_full_keys(run)
+
+def load_evidence(run):
+    """load_eligible's, and the cells' evidence: evidence ((kind, message) => section => its unambiguous evidence full
+    keys) and via (((kind, message), section) => evidence full key => its matched values). A cell has evidence when its
+    evidence keys and the section's eligible keys meet (cells()). Messages are keyed by concrete path
+    (chains.concrete_label), so step 6's join, which joined.csv keys by label, is redone per event
+    (matches.joined_calls), as param_cells.py does"""
+    e = load_eligible(run)
+    unamb_keys, needle_fks, section_of = e.pop("unamb_keys"), e.pop("needle_fks"), e.pop("section_of")
+    kept = {n for n, fks in needle_fks.items() if fks & unamb_keys}
+    calls = matches.joined_calls(run, key=lambda ev, _: (ev["kind"], chains.concrete_label(ev)), kinds=tuple(PAGES))
+    cm, _ = matches.call_matches(run, set().union(*calls.values()) if calls else set(), kept,
+                                 matches.unambiguous_values(run)[1])
     evidence = collections.defaultdict(lambda: collections.defaultdict(set))
-    # ((kind, message), section) => evidence full key => its matched values
     via = collections.defaultdict(lambda: collections.defaultdict(set))
-    for r in csv.DictReader(open(f"{layout.step_dir(run, '6-label-values')}/joined.csv", newline="")):
-        if r["message_kind"] not in PAGES:
-            continue
-        msg = (r["message_kind"], chains.message_label(r["message_label"]))
-        for fk in needle_fks.get(r["needle"], ()):
-            if fk in unamb_keys:
-                evidence[msg][section_of[fk]].add(fk)
-                via[(msg, section_of[fk])][fk].add(r["needle"])
-    return dict(sections=sections, section_keys=section_keys, eligible=eligible, evidence=evidence, via=via,
-                value_sections=value_sections)
+    for msg, cs in calls.items():
+        for n in {n for c in cs for n, _ in cm.get(c, ())}:
+            for fk in needle_fks.get(n, ()):
+                if fk in unamb_keys:
+                    evidence[msg][section_of[fk]].add(fk)
+                    via[(msg, section_of[fk])][fk].add(n)
+    return dict(e, evidence=evidence, via=via)
 
 
 def load(run):
@@ -250,7 +257,7 @@ def load(run):
     value_sections = e.pop("value_sections")
 
     # Messages, ordered by chain group
-    ch = chains.message_chains(run, kinds=tuple(PAGES))  # (kind, label) => chains, for every message
+    ch = chains.message_chains(run, kinds=tuple(PAGES), concrete=True)  # (kind, label) => chains, for every message
     # (groups numbered over the sent messages, as the received-message matrices' columns are, and separately over
     # the received ones)
     order, group_of = [], {}
@@ -502,13 +509,13 @@ def load_received(run, chans=None):
     then responses), each ordered by chain group (by_chain_group; the columns' groups numbered over all sent messages,
     as in load). chans: argmatch's chans output to associate messages by channel types with (default: the run's
     step 5 matches.chans.csv, if any)"""
-    ch = chains.message_chains(run, kinds=tuple(SENT + RECEIVED))
+    ch = chains.message_chains(run, kinds=tuple(SENT + RECEIVED), concrete=True)
     sent, group_of = by_chain_group(ch, sorted(k for k in ch if k[0] in SENT))
     cols = [k for kind in SENT for k in sent if k[0] == kind]
     rows = {}
     for kind in RECEIVED:
         rows[kind] = by_chain_group(ch, sorted(k for k in ch if k[0] == kind))
-    ex = chains.message_exchanges(run, kinds=tuple(SENT + RECEIVED))
+    ex = chains.message_exchanges(run, kinds=tuple(SENT + RECEIVED), concrete=True)
     chans = chans or f"{chains.layout.step_dir(run, chains.STEP)}/matches.chans.csv"
     table = chains.chan_types(chans) if os.path.exists(chans) else {}
     return dict(cols=cols, col_group=group_of, rows=rows, events={k: len(cs) for k, cs in ch.items()},
