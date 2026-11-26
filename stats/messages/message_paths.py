@@ -87,6 +87,9 @@ EMPTY_MERGES = True  # 4: a path with no edges merges (its empty set is containe
 RECEIVER_PARAMS = True  # 5: the parameters that directly influence a receive count among its edges
 # 6: a response's node splits wherever its request's does (respond_blocks); no alternative implemented
 CONTEXT_PATHS = True  # 7: a path stays in one request per module stretch (transition, maximal_paths, ancestors)
+ATOM_CONTEXT = True  # 7, with CONTEXT_PATHS: the checks follow the path's concrete messages (atoms), each edge
+#                      joining the atom it entered a node by to one it leaves by (PATHS.md); False: per node, the
+#                      context IDs of all the node's messages (transition_nodes, back_nodes)
 ENTRY_RESPONSE = True  # 7, with CONTEXT_PATHS: a module stretch entered by a request leaves through a response only
 #                        if it's that request's (transition, back); False: any response sharing a context ID
 RECEIVER_SPLITS = False  # 8: a node also splits by its receiver's side (its edges out, and with 5 its receiver
@@ -253,12 +256,14 @@ def build(run, api_ids=None, external=(), params=False):
     # request's (annotations: show_paths)
     via_patterns = collections.defaultdict(set)
     atom_side_paths = collections.defaultdict(set)  # (atom, "snd" or "rcv") => the concrete paths its events have
+    key_paths = collections.defaultdict(lambda: collections.defaultdict(set))  # event key => cid => (method, path)s
     for module, side, typ, cid, mp, _ in events:
         for a, via in atoms_of(side, typ, mp):
             via_patterns[(module, side, mp[1])].add(typ[3] if side.endswith("req") else typ[2][3])
             atom_side_paths[(a, side[:3])].add(mp[1])
             if cid:
                 key = (SIDE_KIND[side], a, module, via)
+                key_paths[key][cid].add(mp)
                 d["ids"][key].add(cid)
                 d["exchanges"][key].add((cid, mp))
                 by_cid[module][cid].add(key)
@@ -272,10 +277,8 @@ def build(run, api_ids=None, external=(), params=False):
         for r, c in pairs:
             if evidence_matrix.shared_ids(d, r, c)[0]:
                 edges.add((r[1], c[1], (module, r[3], c[3])))
-                sent_by_cid = collections.defaultdict(set)
-                for cid, q in d["exchanges"][c]:
-                    sent_by_cid[cid].add(q)
-                edge_paths[(r[1], c[1], module)] |= {(p, q) for cid, p in d["exchanges"][r] for q in sent_by_cid[cid]}
+                for cid in d["ids"][r] & d["ids"][c]:
+                    edge_paths[(r[1], c[1], module)] |= {(p, q) for p in key_paths[r][cid] for q in key_paths[c][cid]}
     # A request and its own response, with the same concrete path: the responder's response types name their
     # request's type as it received it; when the responder is external, the client's name it as it sent it
     request_of = collections.defaultdict(set)  # response atom => its request atoms
@@ -354,9 +357,19 @@ def build(run, api_ids=None, external=(), params=False):
         if not g.has_edge(u, v):
             g.add_edge(u, v, via=set())
         g.edges[u, v]["via"] |= {(module, p, q) for p, q in edge_paths[(a, b, module)]}
+    # (u, v) => the (atom, atom) pairs its edges join (within a module, and request => its response): decision 7, per
+    # atom (transition)
+    g.graph["atom_edges"] = collections.defaultdict(set)
+    for a, b, _ in edges:
+        g.graph["atom_edges"][(node_of[a], node_of[b])].add((a, b))
+    g.graph["atom_requests_of"] = request_of  # response atom => its requests' atoms
+    g.graph["atoms_of"] = collections.defaultdict(list)  # node => its atoms
+    for a, n in node_of.items():
+        g.graph["atoms_of"][n].append(a)
     g.graph["requests_of"] = collections.defaultdict(set)  # response node => its requests' nodes (request_of)
     for a, qs in request_of.items():
         for q in qs:
+            g.graph["atom_edges"][(node_of[q], node_of[a])].add((q, a))
             g.graph["requests_of"][node_of[a]].add(node_of[q])
             if not g.has_edge(node_of[q], node_of[a]):
                 g.add_edge(node_of[q], node_of[a], via=set())
@@ -374,6 +387,7 @@ def build(run, api_ids=None, external=(), params=False):
     g.graph["side_paths"] = collections.defaultdict(set)
     for (a, side), ps in atom_side_paths.items():
         g.graph["side_paths"][(node_of[a], side)] |= ps
+    g.graph["atom_cids"] = cids  # (atom, "snd" or "rcv") => its (module, context ID)s
     g.graph["cids"] = collections.defaultdict(set)
     for (a, side), cs in cids.items():
         g.graph["cids"][(node_of[a], side)] |= cs
@@ -578,8 +592,8 @@ def stretch_sides(g, u, v):
     return (enter, leave, cu, cv) if cu and cv else None
 
 
-def transition(g, u, v, state):
-    """Decision 7's state after the edge u -> v, given the state u was reached with (None at a path's start): (the
+def transition_nodes(g, u, v, state):
+    """(ATOM_CONTEXT False: transition per node) Decision 7's state after the edge u -> v, given the state u was reached with (None at a path's start): (the
     side v is left through, the (module, context ID)s the messages of this module stretch share, the calls out
     pending), None if unchecked, or False if they share none. A stretch is the messages one module handles in a row:
     it goes on while each edge enters a message through the same side (module and side) the previous edge left it
@@ -612,6 +626,114 @@ def transition(g, u, v, state):
     return (leave, shared, calls, entry) if shared else False
 
 
+def atom_sides(g, u, v, a, b):
+    """stretch_sides for one pair of atoms the edge u -> v joins (a in u, b in v): their own context IDs"""
+    cids = g.graph["atom_cids"]
+    if u.rcv == v.snd and cids.get((a, "rcv")) and cids.get((b, "snd")):
+        enter, leave = (u.rcv, "rcv"), (v.snd, "snd")
+    elif u.snd == v.rcv:
+        enter, leave = (u.snd, "snd"), (v.rcv, "rcv")
+    else:
+        return None
+    ca, cb = cids.get((a, enter[1]), set()), cids.get((b, leave[1]), set())
+    return (enter, leave, ca, cb) if ca and cb else None
+
+
+def fresh(g, n):
+    """The states a path starting (or, backwards, ending) at node n has: one per atom, nothing checked yet"""
+    return frozenset((a, None, None, (), None) for a in g.graph["atoms_of"][n])
+
+
+def transition(g, u, v, state):
+    """Decision 7's state after the edge u -> v, given the one u was reached with (None at a path's start), or None
+    if unchecked (CONTEXT_PATHS False), or False if the edge breaks the rule. With ATOM_CONTEXT, per atom: the state is
+    the set of the path's possible concrete messages at u, each (atom, then as transition_nodes' state: the side it's
+    left through, the stretch's shared context IDs, the calls out pending, the request the stretch was entered by);
+    an edge goes on from an atom only through the pairs of atoms it joins that start at it (atom_edges), each checked
+    as transition_nodes checks a node, but with the two atoms' own context IDs and requests"""
+    if not CONTEXT_PATHS:
+        return None
+    if not ATOM_CONTEXT:
+        return transition_nodes(g, u, v, state)
+    cache = g.graph.setdefault("transitions", {})  # (paths share prefixes, and the search asks twice per node)
+    key = (u, v, state)
+    if key in cache:
+        return cache[key]
+    out = set()
+    by_start = pairs_by(g, u, v, 0)
+    for a_u, prev, shared_prev, calls, entry in (state or fresh(g, u)):
+        for b in by_start.get(a_u, ()):
+            sides = atom_sides(g, u, v, a_u, b)
+            if not sides:  # (unchecked: a fresh state at b)
+                out.add((b, None, None, (), None))
+                continue
+            enter, leave, ca, cb = sides
+            c, e = calls, entry
+            if prev == enter:
+                base = shared_prev
+            else:
+                if prev and prev[1] == "snd" and u.message == "request":
+                    c += ((prev[0], shared_prev, e),)
+                if enter[1] == "rcv" and u.message == "response" and c and c[-1][0] == enter[0]:
+                    base, e, c = c[-1][1] & ca, c[-1][2], c[:-1]
+                else:
+                    base, e = ca, (a_u if enter[1] == "rcv" and u.message == "request" else None)
+            if (ENTRY_RESPONSE and e is not None and leave[1] == "snd" and v.message == "response"
+                    and e not in g.graph["atom_requests_of"].get(b, ())):
+                continue
+            shared = frozenset(base & cb)
+            if shared:
+                out.add((b, leave, shared, c, e))
+    cache[key] = frozenset(out) or False
+    return cache[key]
+
+
+def pairs_by(g, u, v, end):
+    """The edge u -> v's atom pairs (atom_edges), by their start atom (end 0) or end atom (1): {atom: [the other]}"""
+    cache = g.graph.setdefault("pairs_by", {})
+    if (u, v, end) not in cache:
+        out = collections.defaultdict(list)
+        for pr in g.graph["atom_edges"].get((u, v), ()):
+            out[pr[end]].append(pr[1 - end])
+        cache[(u, v, end)] = dict(out)
+    return cache[(u, v, end)]
+
+
+def back(g, u, v, state):
+    """transition, backwards: the state u is reached with from the one v is (None at the end node), or None if
+    unchecked, or False. Per atom (ATOM_CONTEXT): each state (atom at v, the side it's entered through, the shared
+    IDs, the calls pending backwards, the response the stretch is left by) goes back through the pairs of atoms the
+    edge joins that end at it; else back_nodes"""
+    if not ATOM_CONTEXT:
+        return back_nodes(g, u, v, state)
+    out = set()
+    by_end = pairs_by(g, u, v, 1)
+    for b_v, nxt, shared_nxt, calls, exit_ in (state or fresh(g, v)):
+        for a in by_end.get(b_v, ()):
+            sides = atom_sides(g, u, v, a, b_v)
+            if not sides:
+                out.add((a, None, None, (), None))
+                continue
+            enter, leave, ca, cb = sides
+            c, x = calls, exit_
+            if nxt == leave:
+                base = shared_nxt
+            else:
+                if nxt and nxt[1] == "rcv" and v.message == "response":
+                    c += ((nxt[0], shared_nxt, x),)
+                if leave[1] == "snd" and v.message == "request" and c and c[-1][0] == leave[0]:
+                    base, x, c = c[-1][1] & cb, c[-1][2], c[:-1]
+                else:
+                    base, x = cb, (b_v if leave[1] == "snd" and v.message == "response" else None)
+            if (ENTRY_RESPONSE and x is not None and enter[1] == "rcv" and u.message == "request"
+                    and a not in g.graph["atom_requests_of"].get(x, ())):
+                continue
+            shared = frozenset(ca & base)
+            if shared:
+                out.add((a, enter, shared, c, x))
+    return frozenset(out) or False
+
+
 def maximal_paths(g):
     """Every simple path that starts at one of starts(g) and can't be extended (its last node has no successor off
     the path that decision 7 allows: transition), by depth-first search"""
@@ -642,13 +764,32 @@ def ancestors(g, n):
     """The nodes from which a path, as maximal_paths allows them (decision 7), reaches n"""
     if not CONTEXT_PATHS:
         return nx.ancestors(g, n)
+    if ATOM_CONTEXT:  # (each atom's state on its own: a node is an ancestor if any reaches it)
+        seen = collections.defaultdict(list)  # node => per-atom states it was reached with
+        out, todo = set(), [(n, None)]
+        while todo:
+            v, state = todo.pop()
+            for u in g.predecessors(v):
+                st = back(g, u, v, state)
+                if not st:
+                    continue
+                new = frozenset(x for x in st if not any(
+                    x == y or (x[0] == y[0] and x[1] == y[1] and x[3] == y[3] and x[4] == y[4] and x[2] is not None
+                               and y[2] is not None and x[2] <= y[2]) for y in seen[u]))
+                if not new:
+                    continue
+                seen[u].extend(new)
+                out.add(u)
+                todo.append((u, new))
+        out.discard(n)
+        return out
     # Backwards from n; a state: (the stretch key v is left through, the shared context IDs), as transition's
     seen = collections.defaultdict(list)  # node => states it was reached with (a smaller set adds nothing new)
     out, todo = set(), [(n, None)]
     while todo:
         v, state = todo.pop()
         for u in g.predecessors(v):
-            st = back(g, u, v, state)
+            st = back_nodes(g, u, v, state)
             if st is False:
                 continue
             if any(st == s or (st and s and st[0] == s[0] and st[2] == s[2] and st[3] == s[3] and st[1] <= s[1]) for s in seen[u]):
@@ -660,8 +801,8 @@ def ancestors(g, n):
     return out
 
 
-def back(g, u, v, state):
-    """transition, backwards: the state u is reached with from the state v is (None at the end node), or False. A
+def back_nodes(g, u, v, state):
+    """(ATOM_CONTEXT False) transition_nodes, backwards: the state u is reached with from the state v is (None at the end node), or False. A
     call out, backwards: a stretch that begins with the module receiving a response from another module is set
     aside, and resumes when the path, going back, reaches the module's request. ENTRY_RESPONSE, backwards: the
     response a stretch leaves through (its exit) must answer the request it was entered by"""
@@ -697,7 +838,7 @@ def add_args(ap):
                          "e.g. --decision COMPARE=equality; repeatable")
 
 
-DECISIONS = ("GROUPING", "MERGE_LABELS", "COMPARE", "AMBIGUOUS", "REFINE", "EMPTY_MERGES", "RECEIVER_PARAMS", "CONTEXT_PATHS", "ENTRY_RESPONSE",
+DECISIONS = ("GROUPING", "MERGE_LABELS", "ATOM_CONTEXT", "COMPARE", "AMBIGUOUS", "REFINE", "EMPTY_MERGES", "RECEIVER_PARAMS", "CONTEXT_PATHS", "ENTRY_RESPONSE",
              "RECEIVER_SPLITS", "SENDER_PARAMS")
 
 

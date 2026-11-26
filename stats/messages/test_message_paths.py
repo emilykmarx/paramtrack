@@ -160,6 +160,24 @@ server => backend req GET: /msg/2 => /msg/{n} [paths: /msg/2]""")
         paths, _ = hello(SEPARATE, responses=True)
         self.assertEqual(paths.count("server => client resp"), 10)  # (also X to Y's response, and Y to X's)
 
+    def test_atom_context(self):
+        # With GROUPING "labels", /hello/X and /hello/Y are one node, and so are their responses. Per atom
+        # (ATOM_CONTEXT), a path followed from /hello/X's concrete message ends only at the response to /hello/X
+        mp.GROUPING, mp.ATOM_CONTEXT = "labels", True
+        self.addCleanup(setattr, mp, "ATOM_CONTEXT", True)
+        _, g = hello(SEPARATE, responses=True)
+        x = next(a for a in g.graph["atoms_of"][next(n for n in g if n.snd == "client")] if a[1][1] == "/hello/X")
+        ends = set()
+        for p in mp.maximal_paths(g):
+            if p[0].snd != "client" or p[-1].rcv != "client":
+                continue
+            state = frozenset(st for st in mp.fresh(g, p[0]) if st[0] == x)
+            for u, v in zip(p, p[1:]):
+                state = mp.transition(g, u, v, state)
+                self.assertTrue(state, p)
+            ends |= {st[0][1][1] for st in state}
+        self.assertEqual(ends, {"/hello/X"})
+
 
 class Annotations(unittest.TestCase):
     """via_text: per edge, the concrete paths its module logged the edge's two messages under, paired, for the sides
