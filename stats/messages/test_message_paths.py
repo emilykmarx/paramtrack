@@ -35,11 +35,22 @@ def received(cid, path, pattern, api_id):
              "message": {**msg, "pattern": pattern}}]
 
 
-def hello(client_paths):
+def response_sent(cid, path):
+    return {"kind": "Response sent", "pid": 1, "context": {"context_id": cid}, "ts": 1,
+            "message": {"code": "200", "req.Method": "GET", "req.URL.Path": path}}
+
+
+def response_received(cid, path, api_id):
+    return {"kind": "Response received", "pid": 1, "context": {"context_id": cid}, "api_id": api_id, "ts": 1,
+            "message": {"req.Method": "GET", "req.URL.Path": path, "resp.StatusCode": "200"}}
+
+
+def hello(client_paths, responses=False):
     """GROUPING.md's example: the client sends GET client_paths (two, influenced by its parameters pX and pY); the
     server, routing them under /hello/*, logged /hello/1 (while handling it, it sends M1, /msg/1) and /hello/2 (M2,
-    /msg/2); backend receives M1 and M2 under /msg/{n}. The paths, as sample_paths.py prints them
-    (path_lines, without its heading lines; dedented, a blank line between paths), and the graph"""
+    /msg/2); backend receives M1 and M2 under /msg/{n}. responses: every request is answered (200), each in its
+    request's context. The paths, as sample_paths.py prints them (path_lines, without its heading lines; dedented, a
+    blank line between paths), and the graph"""
     x, y = client_paths
     events = {
         "client": [sent("c1", "server:80", x, HELLO), sent("c2", "server:80", y, HELLO)],
@@ -47,6 +58,11 @@ def hello(client_paths):
                   + received("s2", "/hello/2", "/hello/*", HELLO) + [sent("s2", "backend:80", "/msg/2", MSG)],
         "backend": received("b1", "/msg/1", "/msg/{n}", MSG) + received("b2", "/msg/2", "/msg/{n}", MSG),
     }
+    if responses:
+        events["backend"] += [response_sent("b1", "/msg/1"), response_sent("b2", "/msg/2")]
+        events["server"] += [response_received("s1", "/msg/1", MSG), response_sent("s1", "/hello/1"),
+                             response_received("s2", "/msg/2", MSG), response_sent("s2", "/hello/2")]
+        events["client"] += [response_received("c1", x, HELLO), response_received("c2", y, HELLO)]
     cells = {("client", "Request sent", "GET", x, None): {("client", "pX")},
              ("client", "Request sent", "GET", y, None): {("client", "pY")}}
     with mock.patch.object(um, "module_events", lambda run: {m: m for m in events}), \
@@ -64,8 +80,8 @@ SHARED = ("/hello/1", "/hello/2")  # (one shared run: the client logged the serv
 
 class HelloExample(unittest.TestCase):
     def setUp(self):
-        saved = mp.RECEIVER_SPLITS
-        self.addCleanup(setattr, mp, "RECEIVER_SPLITS", saved)
+        for name in ("RECEIVER_SPLITS", "ENTRY_RESPONSE"):
+            self.addCleanup(setattr, mp, name, getattr(mp, name))
 
     def test_separate_runs(self):
         # (decision 8, the default: as GROUPING.md shows) /hello/* splits by the client's parameters, M1 and M2 by
@@ -121,6 +137,23 @@ server => backend req GET: /msg/1 => /msg/{n} [paths: /msg/1]
 
 client => server req GET: /hello/2 => /hello/* [paths: /hello/2]
 server => backend req GET: /msg/2 => /msg/{n} [paths: /msg/2]""")
+
+    def test_entry_response(self):
+        # With responses: the server's response events attach to both of the client's response atoms (decision 8),
+        # and so do their context IDs. A path entering the server by /hello/X leaves it only through the response
+        # to /hello/X (ENTRY_RESPONSE), not /hello/Y's
+        mp.RECEIVER_SPLITS = False
+        paths, _ = hello(SEPARATE, responses=True)
+        for p in paths.split("\n\n"):
+            first, last = p.splitlines()[0], p.splitlines()[-1]
+            self.assertTrue(first.startswith("client => server req"), p)
+            self.assertTrue(last.startswith("server => client resp"), p)
+            self.assertEqual(first.endswith("[paths: /hello/X]"), last.endswith("[paths: /hello/X]"), p)
+        # (X and Y, each through M1, through M2, and straight to its response)
+        self.assertEqual(paths.count("server => client resp"), 6)
+        mp.ENTRY_RESPONSE = False
+        paths, _ = hello(SEPARATE, responses=True)
+        self.assertEqual(paths.count("server => client resp"), 10)  # (also X to Y's response, and Y to X's)
 
 
 class Annotations(unittest.TestCase):

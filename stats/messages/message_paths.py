@@ -82,6 +82,8 @@ EMPTY_MERGES = True  # 4: a path with no edges merges (its empty set is containe
 RECEIVER_PARAMS = True  # 5: the parameters that directly influence a receive count among its edges
 # 6: a response's node splits wherever its request's does (respond_blocks); no alternative implemented
 CONTEXT_PATHS = True  # 7: a path stays in one request per module stretch (transition, maximal_paths, ancestors)
+ENTRY_RESPONSE = True  # 7, with CONTEXT_PATHS: a module stretch entered by a request leaves through a response only
+#                        if it's that request's (transition, back); False: any response sharing a context ID
 RECEIVER_SPLITS = False  # 8: a node also splits by its receiver's side (its edges out, and with 5 its receiver
 #                          parameters), tying the receiver's events to the sender's concrete paths: assumes both
 #                          logged the same concrete paths (one shared run). False: the receiver's side annotates the
@@ -332,8 +334,10 @@ def build(run, api_ids=None, external=(), params=False):
             g.add_edge(u, v, via=set())
         if va or vb:
             g.edges[u, v]["via"].add((module, va, vb))
+    g.graph["requests_of"] = collections.defaultdict(set)  # response node => its requests' nodes (request_of)
     for a, qs in request_of.items():
         for q in qs:
+            g.graph["requests_of"][node_of[a]].add(node_of[q])
             if not g.has_edge(node_of[q], node_of[a]):
                 g.add_edge(node_of[q], node_of[a], via=set())
     # Each type's events per module: how many, and when the first and last were logged
@@ -544,23 +548,31 @@ def transition(g, u, v, state):
     it goes on while each edge enters a message through the same side (module and side) the previous edge left it
     through. A stretch that ends with the module sending a request to another module is a call out: it's set aside
     (pushed: (module, its shared IDs)), and when the path comes back to that module through a response, the stretch
-    resumes from it (popped), as one request's still, rather than restarting"""
+    resumes from it (popped), as one request's still, rather than restarting. The state also keeps the request a
+    stretch was entered by (its entry, kept across calls out): with ENTRY_RESPONSE, the stretch leaves through a
+    response only if it answers that request (requests_of), since a request's handling sends its own response. Without
+    it, decision 8 lets a path leave through another client's response: the receiver's events under a route pattern
+    attach to every client's message of the pattern, and so do their context IDs"""
     sides = stretch_sides(g, u, v) if CONTEXT_PATHS else None
     if not sides:
         return None
     enter, leave, cu, cv = sides
     calls = state[2] if state else ()
+    entry = state[3] if state else None
     if state and state[0] == enter:
         base = state[1]
     else:
         if state and state[0][1] == "snd" and u.message == "request":
-            calls += ((state[0][0], state[1]),)
+            calls += ((state[0][0], state[1], entry),)
         if enter[1] == "rcv" and u.message == "response" and calls and calls[-1][0] == enter[0]:
-            base, calls = calls[-1][1] & cu, calls[:-1]
+            base, entry, calls = calls[-1][1] & cu, calls[-1][2], calls[:-1]
         else:
-            base = cu
+            base, entry = cu, (u if enter[1] == "rcv" and u.message == "request" else None)
+    if (ENTRY_RESPONSE and entry is not None and leave[1] == "snd" and v.message == "response"
+            and entry not in g.graph["requests_of"].get(v, ())):
+        return False
     shared = base & cv
-    return (leave, shared, calls) if shared else False
+    return (leave, shared, calls, entry) if shared else False
 
 
 def maximal_paths(g):
@@ -602,7 +614,7 @@ def ancestors(g, n):
             st = back(g, u, v, state)
             if st is False:
                 continue
-            if any(st == s or (st and s and st[0] == s[0] and st[2] == s[2] and st[1] <= s[1]) for s in seen[u]):
+            if any(st == s or (st and s and st[0] == s[0] and st[2] == s[2] and st[3] == s[3] and st[1] <= s[1]) for s in seen[u]):
                 continue
             seen[u].append(st)
             out.add(u)
@@ -614,23 +626,28 @@ def ancestors(g, n):
 def back(g, u, v, state):
     """transition, backwards: the state u is reached with from the state v is (None at the end node), or False. A
     call out, backwards: a stretch that begins with the module receiving a response from another module is set
-    aside, and resumes when the path, going back, reaches the module's request"""
+    aside, and resumes when the path, going back, reaches the module's request. ENTRY_RESPONSE, backwards: the
+    response a stretch leaves through (its exit) must answer the request it was entered by"""
     sides = stretch_sides(g, u, v)
     if not sides:
         return None
     enter, leave, cu, cv = sides
     calls = state[2] if state else ()
+    exit_ = state[3] if state else None
     if state and state[0] == leave:
         base = state[1]
     else:
         if state and state[0][1] == "rcv" and v.message == "response":
-            calls += ((state[0][0], state[1]),)
+            calls += ((state[0][0], state[1], exit_),)
         if leave[1] == "snd" and v.message == "request" and calls and calls[-1][0] == leave[0]:
-            base, calls = calls[-1][1] & cv, calls[:-1]
+            base, exit_, calls = calls[-1][1] & cv, calls[-1][2], calls[:-1]
         else:
-            base = cv
+            base, exit_ = cv, (v if leave[1] == "snd" and v.message == "response" else None)
+    if (ENTRY_RESPONSE and exit_ is not None and enter[1] == "rcv" and u.message == "request"
+            and u not in g.graph["requests_of"].get(exit_, ())):
+        return False
     shared = cu & base
-    return (enter, shared, calls) if shared else False
+    return (enter, shared, calls, exit_) if shared else False
 
 
 def add_args(ap):
@@ -643,7 +660,7 @@ def add_args(ap):
                          "e.g. --decision COMPARE=equality; repeatable")
 
 
-DECISIONS = ("GROUPING", "COMPARE", "AMBIGUOUS", "REFINE", "EMPTY_MERGES", "RECEIVER_PARAMS", "CONTEXT_PATHS",
+DECISIONS = ("GROUPING", "COMPARE", "AMBIGUOUS", "REFINE", "EMPTY_MERGES", "RECEIVER_PARAMS", "CONTEXT_PATHS", "ENTRY_RESPONSE",
              "RECEIVER_SPLITS", "SENDER_PARAMS")
 
 
