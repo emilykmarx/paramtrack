@@ -269,8 +269,8 @@ def build(run, api_ids=None, external=(), params=False):
                 by_cid[module][cid].add(key)
                 cids[(a, side[:3])].add((module, cid))
     edges = set()  # (atom, atom, (module, the first's concrete path or None, the second's or None)), within a module
-    # (atom, atom, module) => the concrete paths, (first's, second's), of their events that share a context ID: what
-    # the module logged them under (the edges' annotations: via_text)
+    # (atom, atom, module) => (context ID, the first's concrete path, the second's) for their events that share a
+    # context ID: what the module logged them under (the edges' annotations: via_text)
     edge_paths = collections.defaultdict(set)
     for module, by in by_cid.items():
         pairs = {(a, b) for keys in by.values() for a in keys if "received" in a[0] for b in keys if "sent" in b[0]}
@@ -278,7 +278,8 @@ def build(run, api_ids=None, external=(), params=False):
             if evidence_matrix.shared_ids(d, r, c)[0]:
                 edges.add((r[1], c[1], (module, r[3], c[3])))
                 for cid in d["ids"][r] & d["ids"][c]:
-                    edge_paths[(r[1], c[1], module)] |= {(p, q) for p in key_paths[r][cid] for q in key_paths[c][cid]}
+                    edge_paths[(r[1], c[1], module)] |= {(cid, p, q) for p in key_paths[r][cid]
+                                                         for q in key_paths[c][cid]}
     # A request and its own response, with the same concrete path: the responder's response types name their
     # request's type as it received it; when the responder is external, the client's name it as it sent it
     request_of = collections.defaultdict(set)  # response atom => its request atoms
@@ -356,7 +357,12 @@ def build(run, api_ids=None, external=(), params=False):
         u, v = node_of[a], node_of[b]
         if not g.has_edge(u, v):
             g.add_edge(u, v, via=set())
-        g.edges[u, v]["via"] |= {(module, p, q) for p, q in edge_paths[(a, b, module)]}
+        g.edges[u, v]["via"] |= {(module, p, q) for _, p, q in edge_paths[(a, b, module)]}
+    # (atom, atom) => the edge's annotations between them, with their context IDs: (module, cid, path, path)s
+    # (path_pairs)
+    g.graph["atom_via"] = collections.defaultdict(set)
+    for a, b, (module, _, _) in edges:
+        g.graph["atom_via"][(a, b)] |= {(module, cid, p, q) for cid, p, q in edge_paths[(a, b, module)]}
     # (u, v) => the (atom, atom) pairs its edges join (within a module, and request => its response): decision 7, per
     # atom (transition)
     g.graph["atom_edges"] = collections.defaultdict(set)
@@ -499,14 +505,19 @@ def show_side(g, n, side):
     return len(g.graph["side_paths"].get((n, side), ())) > 1
 
 
-def via_text(g, u, v):
+def via_text(g, u, v, pairs=None):
     """The edge u -> v's annotations, or "": per module (the edge's: u's receiver and v's sender), the concrete paths
     it logged u's message and v's under ("<module> received the previous message as <path> and sent the next message
     as <path>", a response's path being its request's: "as the response to <path>"), paired as the edge's atoms are,
     for the sides that have several paths (show_side); with only one such side, or more than SHOW_PATHS pairs, the
     paths on each side as show_paths shows them (and how many pairs)"""
     by = collections.defaultdict(set)
-    for module, va, vb in g.edges[u, v].get("via", ()):
+    if pairs is None:
+        via = g.edges[u, v].get("via", ())
+    else:  # (only the atom pairs and context IDs a path allows: path_pairs)
+        via = {(m, p, q) for pr, ok in pairs.items() for m, cid, p, q in g.graph["atom_via"].get(pr, ())
+               if ok is None or (m, cid) in ok}
+    for module, va, vb in via:
         by[module].add((va[1] if va and show_side(g, u, "rcv") else None,
                         vb[1] if vb and show_side(g, v, "snd") else None))
     parts = []
@@ -555,11 +566,47 @@ def param_via_text(g, n, side, param):
 
 
 def path_text(g, p):
-    """A path as main prints it: its nodes' labels joined by ==>, an annotated edge as ==[<via_text>]==>"""
+    """A path as main prints it: its nodes' labels joined by ==>, an annotated edge as ==[<via_text>]==>, with only
+    the pairs of concrete messages the path can be on (path_pairs)"""
     out = label(p[0])
-    for u, v in zip(p, p[1:]):
-        via = via_text(g, u, v)
+    for (u, v), pairs in zip(zip(p, p[1:]), path_pairs(g, p)):
+        via = via_text(g, u, v, pairs)
         out += (f" ==[{via}]==> " if via else " ==> ") + label(v)
+    return out
+
+
+def path_pairs(g, p):
+    """Per edge of path p, what of it some atom-level realization of the whole path uses (decision 7 per atom): a dict
+    {(atom, atom): the (module, context ID)s allowed, or None for any}, or None (all of the edge) without
+    ATOM_CONTEXT. Forwards from p's first node (transition) and backwards from the atoms its last node is reached at
+    (back), one state at a time; a pair is allowed if both directions use it, and a context ID if both directions'
+    states share it: a stretch's IDs are those its part up to the edge and its part from it share"""
+    if not (CONTEXT_PATHS and ATOM_CONTEXT):
+        return [None] * (len(p) - 1)
+    fwd, states = [], fresh(g, p[0])
+    for u, v in zip(p, p[1:]):
+        step = [(st, nx_) for st in states for nx_ in (transition(g, u, v, frozenset([st])) or ())]
+        fwd.append(step)
+        states = frozenset(nx_ for _, nx_ in step)
+    bwd, states = [None] * len(fwd), frozenset((st[0], None, None, (), None) for st in states)
+    for i in range(len(fwd) - 1, -1, -1):
+        u, v = p[i], p[i + 1]
+        step = [(pv, st) for st in states for pv in (back(g, u, v, frozenset([st])) or ())]
+        bwd[i] = step
+        states = frozenset(pv for pv, _ in step)
+    out = []
+    for f, b in zip(fwd, bwd):
+        ids_f, ids_b = collections.defaultdict(set), collections.defaultdict(set)
+        any_f, any_b = set(), set()  # (pairs a direction leaves unchecked: any context ID)
+        for st, nx_ in f:
+            (ids_f[(st[0], nx_[0])].update(nx_[2]) if nx_[2] is not None else any_f.add((st[0], nx_[0])))
+        for pv, st in b:
+            (ids_b[(pv[0], st[0])].update(pv[2]) if pv[2] is not None else any_b.add((pv[0], st[0])))
+        pairs = {}
+        for pr in (set(ids_f) | any_f) & (set(ids_b) | any_b):
+            ok = [ids for ids, any_ in ((ids_f, any_f), (ids_b, any_b)) if pr not in any_]
+            pairs[pr] = set.intersection(*(o[pr] for o in ok)) if ok else None
+        out.append(pairs)
     return out
 
 

@@ -65,6 +65,12 @@ def hello(client_paths, responses=False):
         events["client"] += [response_received("c1", x, HELLO), response_received("c2", y, HELLO)]
     cells = {("client", "Request sent", "GET", x, None): {("client", "pX")},
              ("client", "Request sent", "GET", y, None): {("client", "pY")}}
+    return paths_of(events, cells)
+
+
+def paths_of(events, cells):
+    """message_paths' graph of events ({module: its events}) and parameter cells, and its paths, as sample_paths.py
+    prints them (path_lines, without its heading lines; dedented, a blank line between paths)"""
     with mock.patch.object(um, "module_events", lambda run: {m: m for m in events}), \
             mock.patch.object(um, "read_events", lambda path: events[path]), \
             mock.patch.object(param_cells, "table", lambda run: cells), \
@@ -177,6 +183,36 @@ server => backend req GET: /msg/2 => /msg/{n} [paths: /msg/2]""")
                 self.assertTrue(state, p)
             ends |= {st[0][1][1] for st in state}
         self.assertEqual(ends, {"/hello/X"})
+
+
+class PathAnnotations(unittest.TestCase):
+    """A path's annotations name only what some realization of the whole path uses (path_pairs)"""
+
+    def test_narrowed_by_context(self):
+        # The server handles /hello/1 and /hello/2 alike (a call to /msg/a), but only /hello/1's handling goes on to
+        # call /other/b. The path that ends at /other/b names only /hello/1, though the edge also joins /hello/2's
+        events = {
+            "client": [sent("c1", "server:80", "/hello/X", HELLO)],
+            "server": received("s1", "/hello/1", "/hello/*", HELLO) + [sent("s1", "backend:80", "/msg/a", MSG)]
+                      + [response_received("s1", "/msg/a", MSG), sent("s1", "backend:80", "/other/b", MSG)]
+                      + received("s2", "/hello/2", "/hello/*", HELLO) + [sent("s2", "backend:80", "/msg/a", MSG)]
+                      + [response_received("s2", "/msg/a", MSG)],
+            "backend": received("b1", "/msg/a", "/msg/{n}", MSG) + [response_sent("b1", "/msg/a")]
+                       + received("b2", "/msg/a", "/msg/{n}", MSG) + [response_sent("b2", "/msg/a")]
+                       + received("b3", "/other/b", "/other/{n}", MSG),
+        }
+        saved = mp.GROUPING
+        self.addCleanup(setattr, mp, "GROUPING", saved)
+        mp.GROUPING = "labels"
+        paths, g = paths_of(events, {})
+        longest = max(paths.split("\n\n"), key=len)
+        self.assertIn("/other/b", longest.splitlines()[-1])
+        self.assertIn("[server received the previous message as /hello/1]", longest)
+        self.assertNotIn("/hello/2", longest)
+        # (the edge itself joins both)
+        u = next(n for n in g if n.snd == "client")
+        v = next(n for n in g.successors(u))
+        self.assertIn("/hello/2", mp.via_text(g, u, v))
 
 
 class Annotations(unittest.TestCase):

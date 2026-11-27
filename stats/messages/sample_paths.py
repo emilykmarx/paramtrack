@@ -58,11 +58,11 @@ def sample(paths, per_length):
 
 
 def path_lines(g, p):
-    """A path's messages, a line each (mp.label), an edge's annotations (decision 8: mp.via_text) on an indented
-    [...] line before the message it leads to"""
-    lines = []
+    """A path's messages, a line each (mp.label), an edge's annotations (mp.via_text, only the pairs of concrete
+    messages the path can be on: mp.path_pairs) on an indented [...] line before the message it leads to"""
+    lines, pairs = [], mp.path_pairs(g, p)
     for j, n in enumerate(p):
-        via = mp.via_text(g, p[j - 1], n) if j else ""
+        via = mp.via_text(g, p[j - 1], n, pairs[j - 1]) if j else ""
         lines += ([f"      [{via}]"] if via else []) + [f"    {mp.label(n)}"]
     return lines
 
