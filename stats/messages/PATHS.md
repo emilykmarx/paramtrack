@@ -19,7 +19,7 @@ path it logged each under. Printed (`via_text`) for the sides with several paths
 A parameter is annotated likewise with the concrete paths of the node's messages it was found on (`param_via`,
 `param_via_text`): `(caddy sent this message as /api/v1/namespaces/caddy-system/secrets/...)`.
 
-A node's two sides can be logged in separate runs (decision 8, and "Assumptions for convenience only" below), so a
+A node's two sides can be logged in separate runs (decision 8, and "Assumptions for convenience only" in [GROUPING_MATCHING_PATHS.md](GROUPING_MATCHING_PATHS.md)), so a
 node's sender-side paths aren't tied to its receiver-side paths: a path through a node can combine any edge in with
 any edge out. The annotations keep, per edge, which concrete message led to which, so a query that tracks the concrete
 path it's on while following edges can recover what splitting the nodes would show.
