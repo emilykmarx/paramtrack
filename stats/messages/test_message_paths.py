@@ -7,6 +7,7 @@ Run from this directory: uv run --with pandas --with networkx --with tabulate --
 
 import contextlib
 import io
+import itertools
 import textwrap
 import unittest
 from unittest import mock
@@ -18,10 +19,11 @@ import networkx as nx
 import unmatched_messages as um
 
 HELLO, MSG = "example.com/hello", "example.com/msg"
+TS = itertools.count(1)  # (events' times, in the order the tests list them)
 
 
 def sent(cid, host, path, api_id):
-    return {"kind": "Request sent", "pid": 1, "context": {"context_id": cid}, "api_id": api_id, "ts": 1,
+    return {"kind": "Request sent", "pid": 1, "context": {"context_id": cid}, "api_id": api_id, "ts": next(TS),
             "request_id": {"method": "GET", "path": path},
             "message": {"req.Method": "GET", "req.URL.Host": host, "req.URL.Path": path}}
 
@@ -29,19 +31,19 @@ def sent(cid, host, path, api_id):
 def received(cid, path, pattern, api_id):
     """A received request and the router's "Request routed" event for it"""
     msg = {"req.Method": "GET", "req.URL.Path": path}
-    return [{"kind": "Request received", "pid": 1, "context": {"context_id": cid}, "api_id": api_id, "ts": 1,
+    return [{"kind": "Request received", "pid": 1, "context": {"context_id": cid}, "api_id": api_id, "ts": next(TS),
              "message": msg},
-            {"kind": "Request routed", "pid": 1, "context": {"context_id": cid}, "api_id": api_id, "ts": 1,
+            {"kind": "Request routed", "pid": 1, "context": {"context_id": cid}, "api_id": api_id, "ts": next(TS),
              "message": {**msg, "pattern": pattern}}]
 
 
 def response_sent(cid, path):
-    return {"kind": "Response sent", "pid": 1, "context": {"context_id": cid}, "ts": 1,
+    return {"kind": "Response sent", "pid": 1, "context": {"context_id": cid}, "ts": next(TS),
             "message": {"code": "200", "req.Method": "GET", "req.URL.Path": path}}
 
 
 def response_received(cid, path, api_id):
-    return {"kind": "Response received", "pid": 1, "context": {"context_id": cid}, "api_id": api_id, "ts": 1,
+    return {"kind": "Response received", "pid": 1, "context": {"context_id": cid}, "api_id": api_id, "ts": next(TS),
             "message": {"req.Method": "GET", "req.URL.Path": path, "resp.StatusCode": "200"}}
 
 
@@ -211,8 +213,27 @@ class PathAnnotations(unittest.TestCase):
         self.assertNotIn("/hello/2", longest)
         # (the edge itself joins both)
         u = next(n for n in g if n.snd == "client")
-        v = next(n for n in g.successors(u))
+        v = next(n for n in g.successors(u) if "/msg/a" in mp.label(n))  # (not /other/b's node)
         self.assertIn("/hello/2", mp.via_text(g, u, v))
+
+
+class EdgeOrder(unittest.TestCase):
+    """A within-module edge, received X -> sent Y, needs X's event before Y's in a context they share (shared_ids)"""
+
+    def edges(self, server):
+        events = {"client": [sent("c1", "server:80", "/hello/X", HELLO)], "server": server,
+                  "backend": received("b1", "/msg/1", "/msg/{n}", MSG)}
+        _, g = paths_of(events, {})
+        return {(u.snd, v.snd) for u, v in g.edges}
+
+    def test_receive_then_send(self):
+        self.assertIn(("client", "server"), self.edges(
+            received("s1", "/hello/1", "/hello/*", HELLO) + [sent("s1", "backend:80", "/msg/1", MSG)]))
+
+    def test_send_then_receive(self):
+        # (the send came first: the receive can't have led to it)
+        self.assertNotIn(("client", "server"), self.edges(
+            [sent("s1", "backend:80", "/msg/1", MSG)] + received("s1", "/hello/1", "/hello/*", HELLO)))
 
 
 class Annotations(unittest.TestCase):

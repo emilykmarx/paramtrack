@@ -17,8 +17,8 @@ sender or receiver.
 
 Edges, X -> Y (between atoms, so between the nodes they're in):
 - within a module M, X received by M and Y sent by M: the received-message matrices' cell rule (evidence_matrix.py's
-  shared_ids: some event of X and some event of Y in M share a context ID, but not only as one exchange's request and
-  response), applied to the atoms' events rather than to the matrices' labels;
+  shared_ids: some event of X and some event of Y in M share a context ID, X's event first, but not only as one
+  exchange's request and response), applied to the atoms' events rather than to the matrices' labels;
 - a request and its own response (which the matrices leave out), with the same concrete path: X a request M received
   and Y M's response to it (match_messages' response types name their request's type); or, when the responder is
   external, X a request M sent and Y the response M received to it.
@@ -257,7 +257,7 @@ def build(run, api_ids=None, external=(), params=False):
     via_patterns = collections.defaultdict(set)
     atom_side_paths = collections.defaultdict(set)  # (atom, "snd" or "rcv") => the concrete paths its events have
     key_paths = collections.defaultdict(lambda: collections.defaultdict(set))  # event key => cid => (method, path)s
-    for module, side, typ, cid, mp, _ in events:
+    for module, side, typ, cid, mp, ts in events:
         for a, via in atoms_of(side, typ, mp):
             via_patterns[(module, side, mp[1])].add(typ[3] if side.endswith("req") else typ[2][3])
             atom_side_paths[(a, side[:3])].add(mp[1])
@@ -265,7 +265,7 @@ def build(run, api_ids=None, external=(), params=False):
                 key = (SIDE_KIND[side], a, module, via)
                 key_paths[key][cid].add(mp)
                 d["ids"][key].add(cid)
-                d["exchanges"][key].add((cid, mp))
+                d["exchanges"][key].add((cid, mp, ts))
                 by_cid[module][cid].add(key)
                 cids[(a, side[:3])].add((module, cid))
     edges = set()  # (atom, atom, (module, the first's concrete path or None, the second's or None)), within a module
@@ -275,9 +275,10 @@ def build(run, api_ids=None, external=(), params=False):
     for module, by in by_cid.items():
         pairs = {(a, b) for keys in by.values() for a in keys if "received" in a[0] for b in keys if "sent" in b[0]}
         for r, c in pairs:
-            if evidence_matrix.shared_ids(d, r, c)[0]:
+            kept = evidence_matrix.shared_ids(d, r, c)[0]
+            if kept:
                 edges.add((r[1], c[1], (module, r[3], c[3])))
-                for cid in d["ids"][r] & d["ids"][c]:
+                for cid in kept:
                     edge_paths[(r[1], c[1], module)] |= {(cid, p, q) for p in key_paths[r][cid]
                                                          for q in key_paths[c][cid]}
     # A request and its own response, with the same concrete path: the responder's response types name their

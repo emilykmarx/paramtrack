@@ -149,12 +149,13 @@ def message_chains(run, step=STEP, kinds=KINDS):
 def message_context_ids(run, step=STEP, kinds=KINDS):
     """(kind, message) => the context IDs of its events in run's <step>/events.jsonl (contexttrack's context_id: the
     request's context, e.g. id:10), for messages of the given kinds, labelled as message_chains does"""
-    return {k: {cid for cid, _ in es} for k, es in message_exchanges(run, step, kinds).items()}
+    return {k: {cid for cid, *_ in es} for k, es in message_exchanges(run, step, kinds).items()}
 
 
 def message_exchanges(run, step=STEP, kinds=KINDS):
-    """(kind, message) => its events' (context ID, (req.Method, req.URL.Path)), as message_context_ids. A request and
-    its response have the same all three (req.URL.Host is only in the request)"""
+    """(kind, message) => its events' (context ID, (req.Method, req.URL.Path), ts), as message_context_ids. A request
+    and its response have the same first two (req.URL.Host is only in the request); ts (Unix ns, the module's own
+    clock) orders a module's events in a context"""
     events = read_events(f"{layout.step_dir(run, step)}/events.jsonl")
     out = collections.defaultdict(set)
     for i, label in join.message_labels(events).items():
@@ -162,7 +163,8 @@ def message_exchanges(run, step=STEP, kinds=KINDS):
             cid = (events[i].get("context") or {}).get("context_id")
             if cid:
                 m = events[i].get("message") or {}
-                out[(events[i]["kind"], message_label(label))].add((cid, (m.get("req.Method"), m.get("req.URL.Path"))))
+                out[(events[i]["kind"], message_label(label))].add((cid, (m.get("req.Method"), m.get("req.URL.Path")),
+                                                                    events[i].get("ts")))
     return out
 
 

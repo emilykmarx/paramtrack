@@ -33,7 +33,8 @@ With --received, instead the received-message matrices: received messages x sent
 receive_influence/ instead, named after the received kind (the rows' kind; every page's columns are all the sent
 messages): <prefix>-request-received.html and <prefix>-response-received.html. Rows: the
 received messages of that kind (from the same events, labelled and shown the same way); columns: every sent message,
-requests then responses; a cell is colored if the two messages' events share a context ID (RECEIVED_LEGEND).
+requests then responses; a cell is colored if the two messages' events share a context ID, the received one first
+(RECEIVED_LEGEND).
 """
 
 import argparse
@@ -486,7 +487,9 @@ RECEIVED_LEGEND = [
                    "context ID (contexttrack's context_id: the request's context); shade of blue = share of the "
                    "received message's context IDs that the sent message also has. White = none shared. A request "
                    "and its own response (same context ID, req.Method and req.URL.Path) don't count as sharing it: "
-                   "a received request's response, and a received response's request, aren't shown."),
+                   "a received request's response, and a received response's request, aren't shown. Nor does a "
+                   "context ID in which the sent message's events all come before the received message's (their "
+                   "timestamps, on the module's own clock): a receive can lead only to a later send."),
     ("Orange outline", "Some function on the received message's chains and some function on the sent message's "
                        "chains both take a channel parameter whose element type has the same named type (argmatch's "
                        "chans output, matches.chans.csv; named types through pointers, slices, arrays, maps and "
@@ -512,7 +515,7 @@ def load_received(run, chans=None):
     chans = chans or f"{chains.layout.step_dir(run, chains.STEP)}/matches.chans.csv"
     table = chains.chan_types(chans) if os.path.exists(chans) else {}
     return dict(cols=cols, col_group=group_of, rows=rows, events={k: len(cs) for k, cs in ch.items()},
-                ids={k: {cid for cid, _ in ex.get(k, ())} for k in ch}, exchanges={k: ex.get(k, set()) for k in ch},
+                ids={k: {cid for cid, *_ in ex.get(k, ())} for k in ch}, exchanges={k: ex.get(k, set()) for k in ch},
                 chans=chans if table else None, chan_types=chains.message_chan_types(ch, table))
 
 
@@ -534,19 +537,29 @@ COUNTERPART = {"Request received": "Response sent", "Response received": "Reques
 
 
 def shared_ids(d, r, c):
-    """The context IDs received message r and sent message c share, but those they share only as one exchange's
-    request and response (same context ID, req.Method and req.URL.Path); and how many those were"""
+    """The context IDs received message r and sent message c share with some event of r before some event of c (their
+    ts: both events are the module's own, on its clock; a received message can lead to a send only after it), except
+    when that pair is one exchange's request and response (same context ID, req.Method and req.URL.Path); and how many
+    shared IDs that leaves out: (only as one exchange, only with the send first)"""
     shared = d["ids"][r] & d["ids"][c]
-    if COUNTERPART[r[0]] != c[0]:
-        return shared, 0
-    # A shared ID counts if some pair of their events with it isn't one exchange
-    rs, cs = collections.defaultdict(set), collections.defaultdict(set)
-    for cid, x in d["exchanges"][r]:
-        rs[cid].add(x)
-    for cid, x in d["exchanges"][c]:
-        cs[cid].add(x)
-    kept = {cid for cid in shared if any(a != b for a in rs[cid] for b in cs[cid])}
-    return kept, len(shared - kept)
+    exchange = COUNTERPART[r[0]] == c[0]
+    rs, cs = collections.defaultdict(list), collections.defaultdict(list)
+    for cid, x, ts in d["exchanges"][r]:
+        if cid in shared:
+            rs[cid].append((x, ts))
+    for cid, x, ts in d["exchanges"][c]:
+        if cid in shared:
+            cs[cid].append((x, ts))
+    kept, own, late = set(), 0, 0
+    for cid in shared:
+        pairs = [(a, ta, b, tb) for a, ta in rs[cid] for b, tb in cs[cid] if not (exchange and a == b)]
+        if any(ta is None or tb is None or ta <= tb for _, ta, _, tb in pairs):  # (a tie: can't tell)
+            kept.add(cid)
+        elif pairs:
+            late += 1
+        else:
+            own += 1
+    return kept, (own, late)
 
 
 def write_received_html(d, run, path, kind):
@@ -596,7 +609,7 @@ def write_received_html(d, run, path, kind):
                    f"{d['events'][r]} events)'><span>{esc(show(r[1]))}</span></th>")
         for j, c in enumerate(cols):
             cls = "c" + (" k" if c in kind_start and j else " g" if c in group_start and j else "")
-            shared, own = shared_ids(d, r, c)
+            shared, (own, _) = shared_ids(d, r, c)
             share = len(shared) / len(d["ids"][r]) if d["ids"][r] else 0
             types = shared_chan_types(d, r, c)
             filled["context"] += bool(shared)

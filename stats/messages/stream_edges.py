@@ -7,7 +7,8 @@ stream's own events (watch events, frames) aren't nodes; this asks whether even 
 
 Event level: a stream event is a received side of a stream exchange (the client's "Response received": the stream's
 data arrives; the server's "Request received": the stream's request arrives). It has an outgoing edge if some sent event
-of the same module shares its context ID, other than its own exchange (same cid and (method, path): shared_ids' rule).
+of the same module shares its context ID, at or after it (their ts, the module's own clock), other than its own
+exchange (same cid and (method, path): shared_ids' rule).
 Node level: the message_paths nodes those types are in, and whether those nodes have out-edges (a node can hold a
 watch and a list of the same path: message_paths' atoms are (method, path), no query).
 
@@ -42,7 +43,7 @@ def stream_kind(m):
     return None
 
 
-events = []  # (module, side, typ, cid, (method, path), stream kind)
+events = []  # (module, side, typ, cid, (method, path), stream kind, ts)
 orig_match = um.match
 
 
@@ -50,7 +51,7 @@ def match(run, api_ids=None, on_message=None, sides=None):
     def rec(module, side, typ, ev):
         m = ev.get("message") or {}
         events.append((module, side, typ, (ev.get("context") or {}).get("context_id"),
-                       (m.get("req.Method"), m.get("req.URL.Path")), stream_kind(m)))
+                       (m.get("req.Method"), m.get("req.URL.Path")), stream_kind(m), ev.get("ts")))
         on_message(module, side, typ, ev)
     return orig_match(run, api_ids, rec, sides)
 
@@ -61,17 +62,17 @@ g = mp.build_from_args(args)
 # Stream exchanges are identified on the request events; responses don't carry the query. A (module, cid, mp) whose
 # request (sent or received) was a stream marks that exchange's response events as stream too.
 stream_ex = {}
-for module, side, typ, cid, p, k in events:
+for module, side, typ, cid, p, k, _ in events:
     if k and side in ("snd_req", "rcv_req") and cid:
         stream_ex[(module, side[:3], cid, p)] = k
-sent = collections.defaultdict(set)  # (module, cid) => sent (side, (method, path))s
-for module, side, typ, cid, p, k in events:
+sent = collections.defaultdict(set)  # (module, cid) => sent (side, (method, path), ts)s
+for module, side, typ, cid, p, k, ts in events:
     if side.startswith("snd") and cid:
-        sent[(module, cid)].add((side, p))
+        sent[(module, cid)].add((side, p, ts))
 
 # types: (module, role, mp, kind) => [events, events with an out edge, (side, typ)s]
 types = collections.defaultdict(lambda: [0, 0, set()])
-for module, side, typ, cid, p, k in events:
+for module, side, typ, cid, p, k, ts in events:
     if side == "rcv_resp":
         k = stream_ex.get((module, "snd", cid, p))
         role = "client (stream data received)"
@@ -85,7 +86,7 @@ for module, side, typ, cid, p, k in events:
     t[0] += 1
     t[2].add((side, typ))
     own = ("snd_req" if side == "rcv_resp" else "snd_resp", p)  # its own exchange's other side (shared_ids)
-    if cid and sent[(module, cid)] - {own}:
+    if cid and any((s_, q) != own and (ts is None or t_ is None or ts <= t_) for s_, q, t_ in sent[(module, cid)]):
         t[1] += 1
 
 nodes_of = g.graph["nodes_of"]

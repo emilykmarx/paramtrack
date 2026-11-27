@@ -45,15 +45,5 @@ Paths that splice requests: a node many requests share (e.g. one concrete path e
 
 **Example:** kube-apiserver => etcd `POST /etcdserverpb.KV/Range`: one type on each side, 55 edges in and (through its response) 57 out; before, through it, each node of sample path 10.1 after it was indirectly influenced by 460 sections (a path from a `DELETE .../pods/{name}` to a `GET .../pods` response). Now the longest paths (8) end in their own request's response (`PATCH .../events/{name}` ... `PATCH 200`), and that response (sample path 8.1's last node) is indirectly influenced by 5 sections; the etcd nodes themselves still are by up to 460, from every request that reaches them. Paths: 306 (18984 with `False`; 237 vs 9795 with `GROUPING=labels`). With etcd a module (`results/runs/2026-11-22-all6`), restarting after the call out to etcd let paths splice again: 23076 paths, the longest 10, and sample path 10.1's `/authorize` node indirectly influenced by 462 sections; resuming the caller's stretch: 310, the longest 8, and the non-etcd nodes of the sampled paths by at most 7 (the 2 more than before are etcd's own); the etcd nodes still by up to 462. `ENTRY_RESPONSE` on all6 (with 8): 521 maximal paths instead of 869, 269 of at least 4 messages instead of 618; every one removed entered kube-apiserver by one request and left by the response to another under the same pattern, e.g. Caddy's GET of one secret ending in the response to another's (282), or Prometheus' service-discovery request ending in kube-apiserver's response to Caddy's (test_message_paths.py: `test_entry_response`)
 
-## Assumptions for convenience only
-
-The matching and the grouping must still work if each module's testbed runs (and source-code analysis) happen
-separately, e.g. Caddy run in prombench and kube-apiserver from its own tests; they may take input from several
-modules' runs, but not assume those were one run (the same concrete paths, clocks or addresses). Two things here do
-assume one shared run, only to make the results easier to read; neither decides what pairs or groups:
-- **The run's cutoff** (`events.py`): every module's events are cut at the earliest of the modules' last event times,
-  so that all modules cover the same stretch of the run. With separate runs, the times aren't comparable.
-- **Naming external peers from the testbed's address snapshot** (`unmatched_messages.py`'s `Peers`): an unmatched
-  message's peer address is named by what the run's `testbed/<step>/addresses.json` says it is (a pod, node or
-  service), and an address a module served on makes the message unexplained rather than external. With separate runs,
-  an address means something only in its own run.
+## Misc path-finding logic
+Within a module, use timestamps so recv => send edges are "happens-before" (precisely, a shared context ID counts only if some event of the received message comes at or before some event of the sent message in it) - see `evidence_matrix.shared_ids`.
